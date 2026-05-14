@@ -24,6 +24,11 @@ module Claire
     end
 
     MAX_DEPTH = 5
+
+    # Values from the previous project tracking system (e.g. "A25-1D861" —
+    # one letter, two-digit year, hyphen, short alphanumeric). Left in
+    # customfield_10762 by data migration but not valid Clarity codes; walk
+    # past them to the parent issue.
     LEGACY_PROJECT_CODE_PATTERN = /\A[A-Z]\d{2}-/
 
     def self.resolve(input, jira: nil, github: nil, cache: nil, config: nil, aliases: nil, refresh: false)
