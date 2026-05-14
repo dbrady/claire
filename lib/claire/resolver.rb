@@ -24,6 +24,7 @@ module Claire
     end
 
     MAX_DEPTH = 5
+    LEGACY_PROJECT_CODE_PATTERN = /\A[A-Z]\d{2}-/
 
     def self.resolve(input, jira: nil, github: nil, cache: nil, config: nil, aliases: nil, refresh: false)
       loaded_config = config || Claire::Config.load
@@ -129,7 +130,7 @@ module Claire
         fields = issue["fields"]
         project_code = fields["customfield_10762"]
 
-        if project_code && !project_code.empty?
+        if project_code && !project_code.empty? && !project_code.match?(LEGACY_PROJECT_CODE_PATTERN)
           return Resolution.new(
             pr_url: pr_url,
             jira_ticket: ticket_key,
