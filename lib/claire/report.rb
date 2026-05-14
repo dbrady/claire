@@ -27,8 +27,20 @@ module Claire
     # @return [Grid] structured data ready for rendering
     def self.weekly(entries_path: Claire::Config.default_entries_path, week_containing: Date.today)
       start_date = week_containing - week_containing.wday
-      days = (0..6).map { |offset| start_date + offset }
       end_date = start_date + 6
+      range(entries_path: entries_path, start_date: start_date, end_date: end_date)
+    end
+
+    # @param entries_path [String] path to the JSONL file
+    # @param start_date [Date] first day of the range (inclusive)
+    # @param end_date [Date] last day of the range (inclusive)
+    # @return [Grid] structured data ready for rendering
+    # @raise [ArgumentError] if end_date < start_date or range spans more than 14 days
+    def self.range(entries_path: Claire::Config.default_entries_path, start_date:, end_date:)
+      raise ArgumentError, "end_date must be >= start_date" if end_date < start_date
+      raise ArgumentError, "range too wide for table output; narrow it or skip it" if (end_date - start_date) > 13
+
+      days = (start_date..end_date).to_a
 
       minute_map = Hash.new { |hash, key| hash[key] = Hash.new(0) }
 
@@ -68,7 +80,7 @@ module Claire
         rows[project_code] = days.map { |day| day_minutes[day] }
       end
 
-      daily_totals = (0..6).map do |day_index|
+      daily_totals = (0...days.length).map do |day_index|
         rows.values.sum { |day_array| day_array[day_index] }
       end
 

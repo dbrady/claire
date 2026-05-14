@@ -66,10 +66,40 @@ when "log"
   Claire::CLI::Log.new.run(target, duration, on: subopts[:on], note: subopts[:note], refresh: subopts[:refresh])
 when "report"
   require "claire/cli/report"
-  Optimist.options do
-    # no flags in S6; S7 adds --last, --week, --start, --end
+  subopts = Optimist.options do
+    opt :week,  "Sun-Sat week containing this date (YYYY-MM-DD)", type: :string, short: :none
+    opt :start, "Range start date (YYYY-MM-DD)", type: :string, short: "-s"
+    opt :end,   "Range end date (YYYY-MM-DD)", type: :string, short: "-e"
   end
-  Claire::CLI::Report.new.run
+  positional = ARGV.shift
+
+  def parse_iso(str)
+    Date.iso8601(str)
+  rescue Date::Error, ArgumentError
+    warn "claire report: invalid date '#{str}' — expected YYYY-MM-DD"
+    exit 1
+  end
+
+  cli = Claire::CLI::Report.new
+  case
+  when positional == "last" && subopts[:week].nil? && subopts[:start].nil? && subopts[:end].nil?
+    cli.run(mode: :last_week)
+  when subopts[:week] && positional.nil? && subopts[:start].nil? && subopts[:end].nil?
+    cli.run(mode: :specific_week, week: parse_iso(subopts[:week]))
+  when subopts[:start] && subopts[:end] && positional.nil? && subopts[:week].nil?
+    cli.run(mode: :range, start_date: parse_iso(subopts[:start]), end_date: parse_iso(subopts[:end]))
+  when subopts[:start] && subopts[:end].nil?
+    warn "claire report: --start requires --end"
+    exit 1
+  when subopts[:end] && subopts[:start].nil?
+    warn "claire report: --end requires --start"
+    exit 1
+  when positional.nil? && subopts[:week].nil? && subopts[:start].nil? && subopts[:end].nil?
+    cli.run(mode: :this_week)
+  else
+    warn "claire report: cannot mix `last`, --week, and --start/--end"
+    exit 1
+  end
 when "edit"
   warn "claire: '#{subcommand}' is not yet implemented"
   exit 1

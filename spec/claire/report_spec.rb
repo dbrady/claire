@@ -440,6 +440,178 @@ RSpec.describe Claire::Report do
     end
   end
 
+  describe ".range" do
+    def entry(id:, worked_on:, minutes:, project_code:)
+      JSON.generate({
+        "id" => id,
+        "created_at" => "#{worked_on}T09:00:00Z",
+        "worked_on" => worked_on,
+        "minutes" => minutes,
+        "project_code" => project_code,
+        "jira_ticket" => nil,
+        "pr_url" => nil,
+        "note" => nil,
+      })
+    end
+
+    it "raises ArgumentError when end_date is before start_date" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, "")
+
+        expect {
+          Claire::Report.range(
+            entries_path: path,
+            start_date: Date.new(2026, 5, 8),
+            end_date: Date.new(2026, 5, 4),
+          )
+        }.to raise_error(ArgumentError, /end_date must be >= start_date/)
+      end
+    end
+
+    it "raises ArgumentError when the range is more than 14 days wide (15 days, end - start == 14)" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, "")
+
+        expect {
+          Claire::Report.range(
+            entries_path: path,
+            start_date: Date.new(2026, 5, 1),
+            end_date: Date.new(2026, 5, 15),
+          )
+        }.to raise_error(ArgumentError, /range too wide for table output; narrow it or skip it/)
+      end
+    end
+
+    it "allows a 14-day range (end - start == 13)" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, "")
+
+        expect {
+          Claire::Report.range(
+            entries_path: path,
+            start_date: Date.new(2026, 5, 1),
+            end_date: Date.new(2026, 5, 14),
+          )
+        }.not_to raise_error
+      end
+    end
+
+    it "returns a 1-column grid for a 1-day range" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, entry(id: "r1", worked_on: "2026-05-07", minutes: 60, project_code: "PR00151") + "\n")
+
+        grid = Claire::Report.range(
+          entries_path: path,
+          start_date: Date.new(2026, 5, 7),
+          end_date: Date.new(2026, 5, 7),
+        )
+
+        expect(grid.days.length).to eq(1)
+        expect(grid.days.first).to eq(Date.new(2026, 5, 7))
+        expect(grid.rows["PR00151"]).to eq([60])
+        expect(grid.grand_total).to eq(60)
+      end
+    end
+
+    it "returns a 14-column grid for a 14-day range" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, "")
+
+        grid = Claire::Report.range(
+          entries_path: path,
+          start_date: Date.new(2026, 5, 1),
+          end_date: Date.new(2026, 5, 14),
+        )
+
+        expect(grid.days.length).to eq(14)
+        expect(grid.start_date).to eq(Date.new(2026, 5, 1))
+      end
+    end
+
+    it "filters entries strictly between start_date and end_date inclusive" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        lines = [
+          entry(id: "s1", worked_on: "2026-05-03", minutes: 30, project_code: "PR00151"),  # before range
+          entry(id: "s2", worked_on: "2026-05-04", minutes: 60, project_code: "PR00151"),  # in range (start)
+          entry(id: "s3", worked_on: "2026-05-06", minutes: 45, project_code: "PR00151"),  # in range
+          entry(id: "s4", worked_on: "2026-05-08", minutes: 90, project_code: "PR00151"),  # in range (end)
+          entry(id: "s5", worked_on: "2026-05-09", minutes: 20, project_code: "PR00151"),  # after range
+        ]
+        File.write(path, lines.join("\n") + "\n")
+
+        grid = Claire::Report.range(
+          entries_path: path,
+          start_date: Date.new(2026, 5, 4),
+          end_date: Date.new(2026, 5, 8),
+        )
+
+        # 5 days: May 4 (Mon), May 5 (Tue), May 6 (Wed), May 7 (Thu), May 8 (Fri)
+        expect(grid.days.length).to eq(5)
+        expect(grid.grand_total).to eq(195)  # 60 + 45 + 90
+        row = grid.rows["PR00151"]
+        expect(row[0]).to eq(60)  # May 4
+        expect(row[1]).to eq(0)   # May 5
+        expect(row[2]).to eq(45)  # May 6
+        expect(row[3]).to eq(0)   # May 7
+        expect(row[4]).to eq(90)  # May 8
+      end
+    end
+
+    it "daily_totals length matches the number of days in the range" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, "")
+
+        grid = Claire::Report.range(
+          entries_path: path,
+          start_date: Date.new(2026, 5, 4),
+          end_date: Date.new(2026, 5, 8),
+        )
+
+        expect(grid.daily_totals.length).to eq(5)
+      end
+    end
+  end
+
+  describe ".weekly (regression — delegates to .range)" do
+    it "still returns correct start_date and 7 days for a mid-week anchor" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, "")
+
+        grid = Claire::Report.weekly(entries_path: path, week_containing: Date.new(2026, 5, 13))
+
+        expect(grid.start_date).to eq(Date.new(2026, 5, 10))
+        expect(grid.days.length).to eq(7)
+        expect(grid.days.last).to eq(Date.new(2026, 5, 16))
+      end
+    end
+
+    it "still produces correct grand_total after refactor" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, JSON.generate({
+          "id" => "reg1",
+          "created_at" => "2026-05-13T09:00:00Z",
+          "worked_on" => "2026-05-13",
+          "minutes" => 75,
+          "project_code" => "PR00151",
+          "jira_ticket" => nil, "pr_url" => nil, "note" => nil,
+        }) + "\n")
+
+        grid = Claire::Report.weekly(entries_path: path, week_containing: Date.new(2026, 5, 13))
+
+        expect(grid.grand_total).to eq(75)
+      end
+    end
+  end
+
   describe ".format_minutes" do
     it "formats 0 minutes as '0'" do
       expect(Claire::Report.format_minutes(0)).to eq("0")

@@ -12,22 +12,31 @@ module Claire
         @today = today
       end
 
-      def run
-        grid = Claire::Report.weekly(week_containing: @today)
+      def run(mode: :this_week, week: nil, start_date: nil, end_date: nil)
+        grid = case mode
+               when :this_week    then Claire::Report.weekly(week_containing: @today)
+               when :last_week    then Claire::Report.weekly(week_containing: @today - 7)
+               when :specific_week then Claire::Report.weekly(week_containing: week)
+               when :range        then Claire::Report.range(start_date: start_date, end_date: end_date)
+               end
 
         if grid.rows.empty?
-          puts "no entries this week (#{grid.start_date.iso8601} – #{(grid.start_date + 6).iso8601})"
+          range_end = grid.start_date + grid.days.length - 1
+          puts "no entries in this range (#{grid.start_date.iso8601} – #{range_end.iso8601})"
           return
         end
 
         puts format_grid(grid)
+      rescue ArgumentError => e
+        warn "claire report: #{e.message}"
+        exit 1
       end
 
       private
 
       def format_grid(grid)
-        day_headers = grid.days.map.with_index do |day, index|
-          "#{DAY_NAMES[index]} #{day.strftime("%m/%d")}"
+        day_headers = grid.days.map do |day|
+          "#{DAY_NAMES[day.wday]} #{day.strftime("%m/%d")}"
         end
 
         all_headers = day_headers + ["TOTAL"]
