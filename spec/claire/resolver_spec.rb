@@ -5,6 +5,7 @@ require "claire/target"
 require "claire/jira"
 require "claire/github"
 require "claire/cache"
+require "claire/aliases"
 require "claire/resolver"
 
 RSpec.describe Claire::Resolver do
@@ -410,6 +411,35 @@ RSpec.describe Claire::Resolver do
         expect(github).not_to have_received(:fetch)
         expect(cache).not_to have_received(:get)
         expect(cache).not_to have_received(:put)
+      end
+
+      context "alias substitution" do
+        it "substitutes an alias before classification and returns a Resolution with the aliased project code" do
+          jira = instance_double(Claire::Jira)
+          github = instance_double(Claire::Github)
+          aliases = instance_double(Claire::Aliases)
+
+          allow(aliases).to receive(:lookup).with("BF").and_return("PR00673")
+
+          resolution = Claire::Resolver.resolve("BF", jira: jira, github: github, cache: null_cache, aliases: aliases)
+
+          expect(resolution.project_code).to eq("PR00673")
+          expect(resolution.jira_ticket).to be_nil
+          expect(resolution.pr_url).to be_nil
+          expect(resolution.walked_chain).to eq([])
+        end
+
+        it "passes through unchanged when no alias matches" do
+          jira = instance_double(Claire::Jira)
+          aliases = instance_double(Claire::Aliases)
+
+          allow(aliases).to receive(:lookup).with("PR00151").and_return(nil)
+
+          resolution = Claire::Resolver.resolve("PR00151", jira: jira, cache: null_cache, aliases: aliases)
+
+          expect(resolution.project_code).to eq("PR00151")
+          expect(resolution.jira_ticket).to be_nil
+        end
       end
 
       it "does not read a stale enriched cache entry when resolving a raw project-code input" do
