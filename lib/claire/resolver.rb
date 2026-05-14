@@ -38,6 +38,13 @@ module Claire
     end
 
     def resolve(input, refresh: false)
+      # Raw project-code inputs bypass cache entirely (read AND write).
+      # The resolution is trivial and there is nothing to cache. More importantly,
+      # writing would clobber a richer enriched entry (jira_ticket, pr_url) that
+      # a prior ticket- or PR-based lookup may have stored under the same key.
+      category = Claire::Target.classify(input)
+      return live_resolve_project_code(input) if category == :project_code
+
       cached = cached_resolution(input, refresh: refresh)
       return cached if cached
 
@@ -80,11 +87,13 @@ module Claire
       )
     end
 
+    def live_resolve_project_code(input)
+      Resolution.new(pr_url: nil, jira_ticket: nil, walked_chain: [], project_code: input)
+    end
+
     def live_resolve(input)
       category = Claire::Target.classify(input)
       case category
-      when :project_code
-        Resolution.new(pr_url: nil, jira_ticket: nil, walked_chain: [], project_code: input)
       when :jira_url
         ticket_key = extract_ticket_from_jira_url(input)
         resolve_via_ticket(ticket_key)

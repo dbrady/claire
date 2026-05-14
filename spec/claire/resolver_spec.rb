@@ -390,24 +390,46 @@ RSpec.describe Claire::Resolver do
         )
       end
 
-      it "returns a cached Resolution for a project-code-only input without calling Jira or Github" do
+      it "bypasses cache entirely for a raw project-code input and returns a trivial Resolution" do
         jira = instance_double(Claire::Jira)
         github = instance_double(Claire::Github)
         cache = instance_double(Claire::Cache)
 
         allow(jira).to receive(:fetch_issue)
         allow(github).to receive(:fetch)
-        allow(cache).to receive(:get).with("PR00151").and_return(
-          { "pr_url" => nil, "jira_ticket" => nil, "project_code" => "PR00151", "walked_chain" => [] },
-        )
+        allow(cache).to receive(:get)
+        allow(cache).to receive(:put)
 
         resolution = Claire::Resolver.resolve("PR00151", jira: jira, github: github, cache: cache)
 
         expect(resolution.project_code).to eq("PR00151")
         expect(resolution.jira_ticket).to be_nil
         expect(resolution.walked_chain).to eq([])
+        expect(resolution.pr_url).to be_nil
         expect(jira).not_to have_received(:fetch_issue)
         expect(github).not_to have_received(:fetch)
+        expect(cache).not_to have_received(:get)
+        expect(cache).not_to have_received(:put)
+      end
+
+      it "does not read a stale enriched cache entry when resolving a raw project-code input" do
+        # Regression: a prior `check MP-796` may have cached an enriched entry under PR00151.
+        # `log PR00151 30` must return jira_ticket: nil, NOT the cached "MP-796".
+        jira = instance_double(Claire::Jira)
+        github = instance_double(Claire::Github)
+        cache = instance_double(Claire::Cache)
+
+        allow(jira).to receive(:fetch_issue)
+        allow(github).to receive(:fetch)
+        allow(cache).to receive(:get)
+        allow(cache).to receive(:put)
+
+        resolution = Claire::Resolver.resolve("PR00151", jira: jira, github: github, cache: cache)
+
+        expect(resolution.jira_ticket).to be_nil
+        expect(resolution.project_code).to eq("PR00151")
+        expect(cache).not_to have_received(:get)
+        expect(cache).not_to have_received(:put)
       end
     end
   end
