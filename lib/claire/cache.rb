@@ -19,8 +19,13 @@ module Claire
 
     # Writes entries for each non-nil identifier in the triple,
     # all pointing at the same hash value.
-    def put(pr_url:, jira_ticket:, project_code:)
-      entry = { "pr_url" => pr_url, "jira_ticket" => jira_ticket, "project_code" => project_code }
+    def put(pr_url:, jira_ticket:, project_code:, walked_chain: [])
+      entry = {
+        "pr_url" => pr_url,
+        "jira_ticket" => jira_ticket,
+        "project_code" => project_code,
+        "walked_chain" => walked_chain,
+      }
       data = load_all
       [pr_url, jira_ticket, project_code].compact.each do |key|
         data[key.to_s] = entry

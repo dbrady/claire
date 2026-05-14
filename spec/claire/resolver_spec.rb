@@ -272,7 +272,12 @@ RSpec.describe Claire::Resolver do
         allow(jira).to receive(:fetch_issue)
         allow(github).to receive(:fetch)
         allow(cache).to receive(:get).with("MP-820").and_return(
-          { "pr_url" => nil, "jira_ticket" => "MP-820", "project_code" => "PR00151" },
+          {
+            "pr_url" => nil,
+            "jira_ticket" => "MP-820",
+            "project_code" => "PR00151",
+            "walked_chain" => ["MP-820"],
+          },
         )
 
         resolution = Claire::Resolver.resolve("MP-820", jira: jira, github: github, cache: cache)
@@ -280,9 +285,26 @@ RSpec.describe Claire::Resolver do
         expect(resolution.project_code).to eq("PR00151")
         expect(resolution.jira_ticket).to eq("MP-820")
         expect(resolution.pr_url).to be_nil
-        expect(resolution.walked_chain).to eq([])
+        expect(resolution.walked_chain).to eq(["MP-820"])
         expect(jira).not_to have_received(:fetch_issue)
         expect(github).not_to have_received(:fetch)
+      end
+
+      it "falls back to an empty walked_chain for cache entries written before this field was added" do
+        jira = instance_double(Claire::Jira)
+        github = instance_double(Claire::Github)
+        cache = instance_double(Claire::Cache)
+
+        allow(jira).to receive(:fetch_issue)
+        allow(github).to receive(:fetch)
+        # Simulate a legacy entry without the walked_chain key
+        allow(cache).to receive(:get).with("MP-820").and_return(
+          { "pr_url" => nil, "jira_ticket" => "MP-820", "project_code" => "PR00151" },
+        )
+
+        resolution = Claire::Resolver.resolve("MP-820", jira: jira, github: github, cache: cache)
+
+        expect(resolution.walked_chain).to eq([])
       end
 
       it "resolves via Jira and writes to cache on a cache miss" do
@@ -299,7 +321,12 @@ RSpec.describe Claire::Resolver do
         resolution = Claire::Resolver.resolve("MP-445", jira: jira, github: github, cache: cache)
 
         expect(resolution.project_code).to eq("PR00151")
-        expect(cache).to have_received(:put).with(pr_url: nil, jira_ticket: "MP-445", project_code: "PR00151")
+        expect(cache).to have_received(:put).with(
+          pr_url: nil,
+          jira_ticket: "MP-445",
+          project_code: "PR00151",
+          walked_chain: ["MP-445"],
+        )
       end
 
       it "skips cache and re-resolves when refresh: true, then rewrites all keys" do
@@ -307,7 +334,12 @@ RSpec.describe Claire::Resolver do
         github = instance_double(Claire::Github)
         cache = instance_double(Claire::Cache)
 
-        existing_entry = { "pr_url" => nil, "jira_ticket" => "MP-445", "project_code" => "PR00151" }
+        existing_entry = {
+          "pr_url" => nil,
+          "jira_ticket" => "MP-445",
+          "project_code" => "PR00151",
+          "walked_chain" => ["MP-445"],
+        }
         allow(cache).to receive(:get).with("MP-445").and_return(existing_entry)
         allow(jira).to receive(:fetch_issue).with("MP-445", fields: ["customfield_10762", "parent"]).and_return(
           { "key" => "MP-445", "fields" => { "customfield_10762" => "PR00151", "parent" => nil } },
@@ -319,8 +351,17 @@ RSpec.describe Claire::Resolver do
 
         expect(resolution.project_code).to eq("PR00151")
         expect(jira).to have_received(:fetch_issue)
-        expect(cache).to have_received(:delete_by_resolution).with(pr_url: nil, jira_ticket: "MP-445", project_code: "PR00151")
-        expect(cache).to have_received(:put).with(pr_url: nil, jira_ticket: "MP-445", project_code: "PR00151")
+        expect(cache).to have_received(:delete_by_resolution).with(
+          pr_url: nil,
+          jira_ticket: "MP-445",
+          project_code: "PR00151",
+        )
+        expect(cache).to have_received(:put).with(
+          pr_url: nil,
+          jira_ticket: "MP-445",
+          project_code: "PR00151",
+          walked_chain: ["MP-445"],
+        )
       end
 
       it "deletes the existing cache entry BEFORE live-resolving on refresh, even when live-resolve raises" do
@@ -328,7 +369,12 @@ RSpec.describe Claire::Resolver do
         github = instance_double(Claire::Github)
         cache = instance_double(Claire::Cache)
 
-        existing_entry = { "pr_url" => nil, "jira_ticket" => "MP-820", "project_code" => "PR00151" }
+        existing_entry = {
+          "pr_url" => nil,
+          "jira_ticket" => "MP-820",
+          "project_code" => "PR00151",
+          "walked_chain" => ["MP-820"],
+        }
         allow(cache).to receive(:get).with("MP-820").and_return(existing_entry)
         allow(cache).to receive(:delete_by_resolution)
         allow(jira).to receive(:fetch_issue).and_raise(RuntimeError, "network error")
@@ -337,7 +383,11 @@ RSpec.describe Claire::Resolver do
           Claire::Resolver.resolve("MP-820", jira: jira, github: github, cache: cache, refresh: true)
         }.to raise_error(RuntimeError, "network error")
 
-        expect(cache).to have_received(:delete_by_resolution).with(pr_url: nil, jira_ticket: "MP-820", project_code: "PR00151")
+        expect(cache).to have_received(:delete_by_resolution).with(
+          pr_url: nil,
+          jira_ticket: "MP-820",
+          project_code: "PR00151",
+        )
       end
 
       it "returns a cached Resolution for a project-code-only input without calling Jira or Github" do
@@ -348,7 +398,7 @@ RSpec.describe Claire::Resolver do
         allow(jira).to receive(:fetch_issue)
         allow(github).to receive(:fetch)
         allow(cache).to receive(:get).with("PR00151").and_return(
-          { "pr_url" => nil, "jira_ticket" => nil, "project_code" => "PR00151" },
+          { "pr_url" => nil, "jira_ticket" => nil, "project_code" => "PR00151", "walked_chain" => [] },
         )
 
         resolution = Claire::Resolver.resolve("PR00151", jira: jira, github: github, cache: cache)

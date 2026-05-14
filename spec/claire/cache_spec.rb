@@ -20,7 +20,7 @@ RSpec.describe Claire::Cache do
       Dir.mktmpdir do |dir|
         path = File.join(dir, "resolutions.yml")
         cache = Claire::Cache.new(path: path)
-        cache.put(pr_url: nil, jira_ticket: "MP-100", project_code: "PR00111")
+        cache.put(pr_url: nil, jira_ticket: "MP-100", project_code: "PR00111", walked_chain: ["MP-100"])
 
         result = cache.get("MP-999")
 
@@ -33,20 +33,31 @@ RSpec.describe Claire::Cache do
     it "round-trips an entry via the jira_ticket key" do
       Dir.mktmpdir do |dir|
         cache = Claire::Cache.new(path: File.join(dir, "resolutions.yml"))
-        cache.put(pr_url: "https://github.com/org/repo/pull/42", jira_ticket: "MP-820", project_code: "PR00151")
+        cache.put(
+          pr_url: "https://github.com/org/repo/pull/42",
+          jira_ticket: "MP-820",
+          project_code: "PR00151",
+          walked_chain: ["MP-820"],
+        )
 
         result = cache.get("MP-820")
 
         expect(result["pr_url"]).to eq("https://github.com/org/repo/pull/42")
         expect(result["jira_ticket"]).to eq("MP-820")
         expect(result["project_code"]).to eq("PR00151")
+        expect(result["walked_chain"]).to eq(["MP-820"])
       end
     end
 
     it "round-trips an entry via the pr_url key" do
       Dir.mktmpdir do |dir|
         cache = Claire::Cache.new(path: File.join(dir, "resolutions.yml"))
-        cache.put(pr_url: "https://github.com/org/repo/pull/42", jira_ticket: "MP-820", project_code: "PR00151")
+        cache.put(
+          pr_url: "https://github.com/org/repo/pull/42",
+          jira_ticket: "MP-820",
+          project_code: "PR00151",
+          walked_chain: ["MP-820"],
+        )
 
         result = cache.get("https://github.com/org/repo/pull/42")
 
@@ -58,7 +69,12 @@ RSpec.describe Claire::Cache do
     it "round-trips an entry via the project_code key" do
       Dir.mktmpdir do |dir|
         cache = Claire::Cache.new(path: File.join(dir, "resolutions.yml"))
-        cache.put(pr_url: "https://github.com/org/repo/pull/42", jira_ticket: "MP-820", project_code: "PR00151")
+        cache.put(
+          pr_url: "https://github.com/org/repo/pull/42",
+          jira_ticket: "MP-820",
+          project_code: "PR00151",
+          walked_chain: ["MP-820"],
+        )
 
         result = cache.get("PR00151")
 
@@ -68,10 +84,37 @@ RSpec.describe Claire::Cache do
       end
     end
 
-    it "finds a cross-direction entry: put with jira_ticket, get by project_code" do
+    it "preserves a multi-step walked_chain through the YAML round-trip" do
+      Dir.mktmpdir do |dir|
+        cache = Claire::Cache.new(path: File.join(dir, "resolutions.yml"))
+        cache.put(
+          pr_url: nil,
+          jira_ticket: "MP-796",
+          project_code: "PR00151",
+          walked_chain: ["MP-796", "MP-445"],
+        )
+
+        result = cache.get("MP-796")
+
+        expect(result["walked_chain"]).to eq(["MP-796", "MP-445"])
+      end
+    end
+
+    it "defaults walked_chain to an empty array when omitted" do
       Dir.mktmpdir do |dir|
         cache = Claire::Cache.new(path: File.join(dir, "resolutions.yml"))
         cache.put(pr_url: nil, jira_ticket: "MP-820", project_code: "PR00151")
+
+        result = cache.get("MP-820")
+
+        expect(result["walked_chain"]).to eq([])
+      end
+    end
+
+    it "finds a cross-direction entry: put with jira_ticket, get by project_code" do
+      Dir.mktmpdir do |dir|
+        cache = Claire::Cache.new(path: File.join(dir, "resolutions.yml"))
+        cache.put(pr_url: nil, jira_ticket: "MP-820", project_code: "PR00151", walked_chain: [])
 
         result = cache.get("PR00151")
 
@@ -84,7 +127,7 @@ RSpec.describe Claire::Cache do
       Dir.mktmpdir do |dir|
         path = File.join(dir, "resolutions.yml")
         cache = Claire::Cache.new(path: path)
-        cache.put(pr_url: nil, jira_ticket: "MP-820", project_code: "PR00151")
+        cache.put(pr_url: nil, jira_ticket: "MP-820", project_code: "PR00151", walked_chain: [])
 
         data = YAML.safe_load_file(path)
 
@@ -98,7 +141,7 @@ RSpec.describe Claire::Cache do
         path = File.join(dir, "deep", "nested", "resolutions.yml")
         cache = Claire::Cache.new(path: path)
 
-        cache.put(pr_url: nil, jira_ticket: "MP-820", project_code: "PR00151")
+        cache.put(pr_url: nil, jira_ticket: "MP-820", project_code: "PR00151", walked_chain: [])
 
         expect(File.exist?(path)).to be true
       end

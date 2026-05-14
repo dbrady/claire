@@ -38,48 +38,63 @@ module Claire
     end
 
     def resolve(input, refresh: false)
-      category = Claire::Target.classify(input)
+      cached = cached_resolution(input, refresh: refresh)
+      return cached if cached
 
-      unless refresh
-        if (cached = @cache.get(input))
-          return Resolution.new(
-            pr_url: cached["pr_url"],
-            jira_ticket: cached["jira_ticket"],
-            walked_chain: [],
-            project_code: cached["project_code"],
-          )
-        end
-      end
-
-      # On refresh: cascade-delete BEFORE live resolve, so a failing
-      # resolve leaves the cache empty (not stale) for this triple.
-      if refresh && (existing = @cache.get(input))
-        @cache.delete_by_resolution(**existing.transform_keys(&:to_sym))
-      end
-
-      resolution = case category
-                   when :project_code
-                     Resolution.new(pr_url: nil, jira_ticket: nil, walked_chain: [], project_code: input)
-                   when :jira_url
-                     ticket_key = extract_ticket_from_jira_url(input)
-                     resolve_via_ticket(ticket_key)
-                   when :ticket
-                     resolve_via_ticket(input)
-                   when :pr_number, :pr_url
-                     pr_data = @github.fetch(input)
-                     resolve_via_ticket(pr_data[:jira_ticket], pr_url: pr_data[:pr_url])
-                   end
-
+      resolution = live_resolve(input)
       @cache.put(
         pr_url: resolution.pr_url,
         jira_ticket: resolution.jira_ticket,
         project_code: resolution.project_code,
+        walked_chain: resolution.walked_chain,
       )
-
       resolution
     end
 
     private
+
+    # Returns a cached Resolution on a cache hit (when not refreshing), or nil
+    # when the caller should live-resolve instead.
+    # Side-effect: cascade-deletes the existing cache entry on refresh so that a
+    # failing live-resolve leaves the cache empty rather than stale.
+    def cached_resolution(input, refresh:)
+      if refresh
+        if (existing = @cache.get(input))
+          @cache.delete_by_resolution(
+            pr_url: existing["pr_url"],
+            jira_ticket: existing["jira_ticket"],
+            project_code: existing["project_code"],
+          )
+        end
+        return nil
+      end
+
+      cached = @cache.get(input)
+      return nil unless cached
+
+      Resolution.new(
+        pr_url: cached["pr_url"],
+        jira_ticket: cached["jira_ticket"],
+        walked_chain: cached["walked_chain"] || [],
+        project_code: cached["project_code"],
+      )
+    end
+
+    def live_resolve(input)
+      category = Claire::Target.classify(input)
+      case category
+      when :project_code
+        Resolution.new(pr_url: nil, jira_ticket: nil, walked_chain: [], project_code: input)
+      when :jira_url
+        ticket_key = extract_ticket_from_jira_url(input)
+        resolve_via_ticket(ticket_key)
+      when :ticket
+        resolve_via_ticket(input)
+      when :pr_number, :pr_url
+        pr_data = @github.fetch(input)
+        resolve_via_ticket(pr_data[:jira_ticket], pr_url: pr_data[:pr_url])
+      end
+    end
 
     def resolve_via_ticket(ticket_key, pr_url: nil)
       walked_chain = []
