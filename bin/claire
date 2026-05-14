@@ -1,0 +1,51 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+
+require "optimist"
+
+SUBCOMMANDS = %w[init check log report edit].freeze
+
+global_opts = Optimist.options do
+  banner <<~BANNER
+    claire - Clarity time tracker CLI
+
+    Usage:
+      claire <subcommand> [options]
+
+    Subcommands:
+      init    Bootstrap config from ~/.claude/.mcp.json
+      check   Resolve a ticket/PR/code and print the project code
+      log     Resolve and record a billable time entry
+      report  Show weekly hours by project code
+      edit    Open the time log in $EDITOR
+
+    Options:
+  BANNER
+  opt :version, "Print version and exit", short: :none
+  stop_on SUBCOMMANDS
+end
+
+if global_opts[:version]
+  require "claire"
+  puts "claire #{Claire::VERSION}"
+  exit 0
+end
+
+subcommand = ARGV.shift
+
+case subcommand
+when "init"
+  require "claire/cli/init"
+  Claire::CLI::Init.new.run
+when "check", "log", "report", "edit"
+  warn "claire: '#{subcommand}' is not yet implemented"
+  exit 1
+when nil
+  Optimist.educate
+else
+  warn "claire: unknown subcommand '#{subcommand}'"
+  warn "Run 'claire --help' for usage."
+  exit 1
+end
