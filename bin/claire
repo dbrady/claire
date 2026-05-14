@@ -64,7 +64,13 @@ when "log"
     exit 1
   end
   Claire::CLI::Log.new.run(target, duration, on: subopts[:on], note: subopts[:note], refresh: subopts[:refresh])
-when "report", "edit"
+when "report"
+  require "claire/cli/report"
+  Optimist.options do
+    # no flags in S6; S7 adds --last, --week, --start, --end
+  end
+  Claire::CLI::Report.new.run
+when "edit"
   warn "claire: '#{subcommand}' is not yet implemented"
   exit 1
 when nil
