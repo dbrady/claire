@@ -2,6 +2,7 @@
 
 require "claire/config"
 require "claire/jira"
+require "claire/github"
 require "claire/target"
 
 module Claire
@@ -22,13 +23,15 @@ module Claire
 
     MAX_DEPTH = 5
 
-    def self.resolve(input, jira: nil)
+    def self.resolve(input, jira: nil, github: nil)
       jira ||= Claire::Jira.new(Claire::Config.load)
-      new(jira).resolve(input)
+      github ||= Claire::Github.new
+      new(jira, github).resolve(input)
     end
 
-    def initialize(jira)
+    def initialize(jira, github = Claire::Github.new)
       @jira = jira
+      @github = github
     end
 
     def resolve(input)
@@ -39,17 +42,18 @@ module Claire
         Resolution.new(pr_url: nil, jira_ticket: nil, walked_chain: [], project_code: input)
       when :jira_url
         ticket_key = extract_ticket_from_jira_url(input)
-        resolve_ticket(ticket_key, original_input: input)
+        resolve_via_ticket(ticket_key)
       when :ticket
-        resolve_ticket(input, original_input: input)
+        resolve_via_ticket(input)
       when :pr_number, :pr_url
-        raise NotImplementedError, "PR resolution is not yet implemented (coming in S3)"
+        pr_data = @github.fetch(input)
+        resolve_via_ticket(pr_data[:jira_ticket], pr_url: pr_data[:pr_url])
       end
     end
 
     private
 
-    def resolve_ticket(ticket_key, original_input:)
+    def resolve_via_ticket(ticket_key, pr_url: nil)
       walked_chain = []
       current_key = ticket_key
 
@@ -65,7 +69,7 @@ module Claire
 
         if project_code && !project_code.empty?
           return Resolution.new(
-            pr_url: nil,
+            pr_url: pr_url,
             jira_ticket: ticket_key,
             walked_chain: walked_chain,
             project_code: project_code,

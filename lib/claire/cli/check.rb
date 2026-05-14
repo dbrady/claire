@@ -2,6 +2,7 @@
 
 require "claire/config"
 require "claire/jira"
+require "claire/github"
 require "claire/resolver"
 
 module Claire
@@ -31,7 +32,7 @@ module Claire
       rescue Claire::Resolver::DepthLimitError => e
         warn "claire: #{e.message}"
         exit 1
-      rescue NotImplementedError => e
+      rescue Claire::Github::Error => e
         warn "claire: #{e.message}"
         exit 1
       rescue ArgumentError => e
@@ -43,7 +44,7 @@ module Claire
 
       def print_resolution(input, resolution)
         puts format_walk(input, resolution)
-        puts "PR URL: #{resolution.pr_url || "(none)"}"
+        puts "PR URL: #{resolution.pr_url}" if resolution.pr_url
         puts "Clarity: #{CLARITY_URL}"
         puts "  !!  manual mode: confirm you're approved for #{resolution.project_code} before logging time."
       end
