@@ -72,6 +72,10 @@ module Claire
       File.expand_path("~/.config/claire/resolutions.yml")
     end
 
+    def self.default_entries_path
+      File.expand_path("~/.config/claire/entries.jsonl")
+    end
+
     def self.default_mcp_path
       File.expand_path("~/.claude/.mcp.json")
     end

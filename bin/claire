@@ -50,7 +50,21 @@ when "check"
     exit 1
   end
   Claire::CLI::Check.new.run(input, refresh: subopts[:refresh])
-when "log", "report", "edit"
+when "log"
+  require "claire/cli/log"
+  subopts = Optimist.options do
+    opt :on,      "Date worked on (YYYY-MM-DD, today, yesterday, weekday, M/D)", type: :string, short: "-O"
+    opt :note,    "Free-text note", type: :string, short: "-m"
+    opt :refresh, "Bypass resolver cache", short: "-r", default: false
+  end
+  target = ARGV.shift
+  duration = ARGV.shift
+  if target.nil? || duration.nil?
+    warn "Usage: claire log <target> <duration> [--on DATE] [--note STR]"
+    exit 1
+  end
+  Claire::CLI::Log.new.run(target, duration, on: subopts[:on], note: subopts[:note], refresh: subopts[:refresh])
+when "report", "edit"
   warn "claire: '#{subcommand}' is not yet implemented"
   exit 1
 when nil
