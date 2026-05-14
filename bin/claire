@@ -106,8 +106,9 @@ when "report"
     warn "claire report: cannot mix `last`, --week, and --start/--end"; exit 1
   end
 when "edit"
-  warn "claire: '#{subcommand}' is not yet implemented"
-  exit 1
+  require "claire/cli/edit"
+  Optimist.options # no flags; consume any stray args cleanly
+  Claire::CLI::Edit.new.run
 when nil
   Optimist.educate
 else
