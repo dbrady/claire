@@ -59,7 +59,7 @@ when "log"
   end
   target = ARGV.shift
   duration = ARGV.shift
-  if target.nil? || duration.nil?
+  if target.nil? || target.empty? || duration.nil? || duration.empty?
     warn "Usage: claire log <target> <duration> [--on DATE] [--note STR]"
     exit 1
   end

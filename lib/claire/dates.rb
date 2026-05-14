@@ -46,7 +46,7 @@ module Claire
 
       if normalized.match?(/\A\d{4}-\d{2}-\d{2}\z/)
         begin
-          return Date.parse(normalized)
+          return Date.strptime(normalized, "%Y-%m-%d")
         rescue Date::Error
           raise ArgumentError, "invalid date: #{input.inspect}"
         end

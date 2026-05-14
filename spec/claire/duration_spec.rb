@@ -79,5 +79,19 @@ RSpec.describe Claire::Duration do
     it "raises ArgumentError on negative-like input '-5'" do
       expect { Claire::Duration.parse("-5") }.to raise_error(ArgumentError)
     end
+
+    it "parses '30.5m' by rounding to 31 minutes" do
+      result = Claire::Duration.parse("30.5m")
+      expect(result).to eq(31)
+    end
+
+    it "parses '0.5m' by rounding up to 1 minute" do
+      result = Claire::Duration.parse("0.5m")
+      expect(result).to eq(1)
+    end
+
+    it "raises ArgumentError on '0.4m' because it rounds to 0 (not positive)" do
+      expect { Claire::Duration.parse("0.4m") }.to raise_error(ArgumentError, /positive/)
+    end
   end
 end

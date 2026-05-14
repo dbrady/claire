@@ -28,7 +28,7 @@ module Claire
         number = str[0..-2].to_f
         suffix = str[-1].downcase
         if suffix == "m"
-          minutes = number.to_i
+          minutes = number.round
           raise ArgumentError, "minutes must be positive: #{input}" if minutes <= 0
           return minutes
         else
