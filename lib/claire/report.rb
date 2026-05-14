@@ -13,6 +13,15 @@ module Claire
     # - daily_totals: [sum_sun, sum_mon, ..., sum_sat]  (integers, minutes)
     # - grand_total: integer minutes
 
+    # Renders integer minutes as decimal hours per the display rules:
+    # - 0 → "0"
+    # - 60 → "1" (trailing zeros trimmed)
+    # - 90 → "1.5"
+    # - 1 → "0.02" (non-zero rounds-to-zero preserved)
+    def self.format_minutes(minutes)
+      ("%.2f" % (minutes / 60.0)).sub(/\.?0+\z/, "")
+    end
+
     # @param entries_path [String] path to the JSONL file
     # @param week_containing [Date] anchor date; report shows the Sun–Sat week containing this date
     # @return [Grid] structured data ready for rendering
@@ -24,20 +33,21 @@ module Claire
       minute_map = Hash.new { |hash, key| hash[key] = Hash.new(0) }
 
       if File.exist?(entries_path)
-        File.foreach(entries_path) do |line|
+        File.foreach(entries_path).with_index(1) do |line, lineno|
           line = line.chomp
           next if line.strip.empty?
 
           begin
             parsed = JSON.parse(line)
           rescue JSON::ParserError
-            warn "claire report: skipping malformed JSONL line"
+            warn "claire report: skipping malformed JSONL line #{lineno}: #{line.strip[0, 80]}"
             next
           end
 
           worked_on = begin
-            Date.parse(parsed["worked_on"].to_s)
-          rescue ArgumentError, TypeError
+            Date.iso8601(parsed["worked_on"].to_s)
+          rescue Date::Error, ArgumentError, TypeError
+            warn "claire report: skipping line #{lineno} with malformed worked_on: #{line.strip[0, 80]}"
             next
           end
 

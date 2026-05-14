@@ -44,15 +44,15 @@ module Claire
 
         grid.rows.sort.each do |project_code, day_minutes|
           row_total = day_minutes.sum
-          cells = day_minutes.map { |minutes| format_minutes(minutes) }
-          cells << format_minutes(row_total)
+          cells = day_minutes.map { |minutes| Claire::Report.format_minutes(minutes) }
+          cells << Claire::Report.format_minutes(row_total)
           lines << build_data_row(project_code, cells, label_width, col_widths)
         end
 
         lines << separator
 
-        total_cells = grid.daily_totals.map { |minutes| format_minutes(minutes) }
-        total_cells << format_minutes(grid.grand_total)
+        total_cells = grid.daily_totals.map { |minutes| Claire::Report.format_minutes(minutes) }
+        total_cells << Claire::Report.format_minutes(grid.grand_total)
         lines << build_data_row("TOTAL", total_cells, label_width, col_widths)
         lines << separator
 
@@ -79,10 +79,6 @@ module Claire
           " " + value.rjust(col_widths[index]) + " "
         end
         "|#{label_cell}|#{value_cells.join("|")}|"
-      end
-
-      def format_minutes(minutes)
-        ("%.2f" % (minutes / 60.0)).sub(/\.?0+\z/, "")
       end
     end
   end

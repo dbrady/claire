@@ -383,5 +383,102 @@ RSpec.describe Claire::Report do
         expect(grid.grand_total / 60.0).to eq(1.0)
       end
     end
+
+    it "warns with line number and snippet when a JSONL line is malformed" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, "NOT VALID JSON {{{\n")
+
+        expect {
+          Claire::Report.weekly(entries_path: path, week_containing: Date.new(2026, 5, 14))
+        }.to output(/claire report: skipping malformed JSONL line 1: NOT VALID JSON \{\{\{/).to_stderr
+      end
+    end
+
+    it "warns with line number and snippet when worked_on is malformed" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, JSON.generate({
+          "id" => "j1",
+          "worked_on" => "not-a-date",
+          "minutes" => 30,
+          "project_code" => "PR00151",
+        }) + "\n")
+
+        expect {
+          Claire::Report.weekly(entries_path: path, week_containing: Date.new(2026, 5, 14))
+        }.to output(/claire report: skipping line 1 with malformed worked_on:/).to_stderr
+      end
+    end
+
+    it "warns on malformed worked_on but still processes valid rows on other lines" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        lines = [
+          JSON.generate({
+            "id" => "k1",
+            "worked_on" => "not-a-date",
+            "minutes" => 30,
+            "project_code" => "PR00151",
+          }),
+          JSON.generate({
+            "id" => "k2",
+            "worked_on" => "2026-05-14",
+            "minutes" => 60,
+            "project_code" => "PR00151",
+          }),
+        ]
+        File.write(path, lines.join("\n") + "\n")
+
+        grid = nil
+        expect {
+          grid = Claire::Report.weekly(entries_path: path, week_containing: Date.new(2026, 5, 14))
+        }.to output(/malformed worked_on/).to_stderr
+
+        expect(grid.grand_total).to eq(60)
+      end
+    end
+  end
+
+  describe ".format_minutes" do
+    it "formats 0 minutes as '0'" do
+      expect(Claire::Report.format_minutes(0)).to eq("0")
+    end
+
+    it "formats 60 minutes as '1' (trailing zeros trimmed)" do
+      expect(Claire::Report.format_minutes(60)).to eq("1")
+    end
+
+    it "formats 90 minutes as '1.5'" do
+      expect(Claire::Report.format_minutes(90)).to eq("1.5")
+    end
+
+    it "formats 15 minutes as '0.25'" do
+      expect(Claire::Report.format_minutes(15)).to eq("0.25")
+    end
+
+    it "formats 105 minutes as '1.75'" do
+      expect(Claire::Report.format_minutes(105)).to eq("1.75")
+    end
+
+    it "formats 1 minute as '0.02' (non-zero rounds-to-zero preserved)" do
+      expect(Claire::Report.format_minutes(1)).to eq("0.02")
+    end
+
+    it "formats 2 minutes as '0.03'" do
+      expect(Claire::Report.format_minutes(2)).to eq("0.03")
+    end
+
+    it "formats 600 minutes as '10' (no leading-zero strip bug)" do
+      expect(Claire::Report.format_minutes(600)).to eq("10")
+    end
+
+    it "formats 6000 minutes as '100'" do
+      expect(Claire::Report.format_minutes(6000)).to eq("100")
+    end
+
+    it "formats 30 minutes as '0.5'" do
+      expect(Claire::Report.format_minutes(30)).to eq("0.5")
+    end
   end
 end
