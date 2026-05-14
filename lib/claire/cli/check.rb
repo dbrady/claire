@@ -14,8 +14,8 @@ module Claire
         @resolver = resolver
       end
 
-      def run(input)
-        resolution = @resolver.resolve(input)
+      def run(input, refresh: false)
+        resolution = @resolver.resolve(input, refresh: refresh)
         print_resolution(input, resolution)
       rescue Claire::Jira::AuthenticationError => e
         warn "claire: JIRA auth failed (HTTP #{e.status}). Run 'claire init' to refresh credentials."

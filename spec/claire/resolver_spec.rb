@@ -4,15 +4,25 @@ require "spec_helper"
 require "claire/target"
 require "claire/jira"
 require "claire/github"
+require "claire/cache"
 require "claire/resolver"
 
 RSpec.describe Claire::Resolver do
+  # A no-op cache double used by specs that do not test cache behaviour.
+  # It always misses (get returns nil) and silently accepts puts.
+  def null_cache
+    cache = instance_double(Claire::Cache)
+    allow(cache).to receive(:get).and_return(nil)
+    allow(cache).to receive(:put)
+    cache
+  end
+
   describe ".resolve" do
     it "short-circuits on a raw project code and returns it without hitting JIRA" do
       jira = instance_double(Claire::Jira)
       allow(jira).to receive(:fetch_issue)
 
-      resolution = Claire::Resolver.resolve("PR00151", jira: jira)
+      resolution = Claire::Resolver.resolve("PR00151", jira: jira, cache: null_cache)
 
       expect(resolution.project_code).to eq("PR00151")
       expect(resolution.jira_ticket).to be_nil
@@ -33,7 +43,7 @@ RSpec.describe Claire::Resolver do
         },
       )
 
-      resolution = Claire::Resolver.resolve("MP-445", jira: jira)
+      resolution = Claire::Resolver.resolve("MP-445", jira: jira, cache: null_cache)
 
       expect(resolution.project_code).to eq("PR00151")
       expect(resolution.jira_ticket).to eq("MP-445")
@@ -60,7 +70,7 @@ RSpec.describe Claire::Resolver do
         },
       )
 
-      resolution = Claire::Resolver.resolve("MP-796", jira: jira)
+      resolution = Claire::Resolver.resolve("MP-796", jira: jira, cache: null_cache)
 
       expect(resolution.project_code).to eq("PR00151")
       expect(resolution.jira_ticket).to eq("MP-796")
@@ -96,7 +106,7 @@ RSpec.describe Claire::Resolver do
         },
       )
 
-      resolution = Claire::Resolver.resolve("CHILD-1", jira: jira)
+      resolution = Claire::Resolver.resolve("CHILD-1", jira: jira, cache: null_cache)
 
       expect(resolution.project_code).to eq("PR99999")
       expect(resolution.jira_ticket).to eq("CHILD-1")
@@ -115,7 +125,7 @@ RSpec.describe Claire::Resolver do
       )
 
       expect {
-        Claire::Resolver.resolve("MP-100", jira: jira)
+        Claire::Resolver.resolve("MP-100", jira: jira, cache: null_cache)
       }.to raise_error(Claire::Resolver::NoProjectCodeError, /MP-100/)
     end
 
@@ -139,7 +149,7 @@ RSpec.describe Claire::Resolver do
       )
 
       expect {
-        Claire::Resolver.resolve("DEEP-1", jira: jira)
+        Claire::Resolver.resolve("DEEP-1", jira: jira, cache: null_cache)
       }.to raise_error(Claire::Resolver::DepthLimitError, /DEEP-1/)
     end
 
@@ -164,7 +174,7 @@ RSpec.describe Claire::Resolver do
         },
       )
 
-      resolution = Claire::Resolver.resolve("https://upbd.atlassian.net/browse/MP-796", jira: jira)
+      resolution = Claire::Resolver.resolve("https://upbd.atlassian.net/browse/MP-796", jira: jira, cache: null_cache)
 
       expect(resolution.project_code).to eq("PR00151")
       expect(resolution.jira_ticket).to eq("MP-796")
@@ -187,7 +197,7 @@ RSpec.describe Claire::Resolver do
           { "key" => "MP-445", "fields" => { "customfield_10762" => "PR00151", "parent" => nil } },
         )
 
-        resolution = Claire::Resolver.resolve("17343", jira: jira, github: github)
+        resolution = Claire::Resolver.resolve("17343", jira: jira, github: github, cache: null_cache)
 
         expect(resolution.project_code).to eq("PR00151")
         expect(resolution.jira_ticket).to eq("MP-796")
@@ -214,7 +224,7 @@ RSpec.describe Claire::Resolver do
           { "key" => "MP-445", "fields" => { "customfield_10762" => "PR00151", "parent" => nil } },
         )
 
-        resolution = Claire::Resolver.resolve(pr_url, jira: jira, github: github)
+        resolution = Claire::Resolver.resolve(pr_url, jira: jira, github: github, cache: null_cache)
 
         expect(resolution.project_code).to eq("PR00151")
         expect(resolution.jira_ticket).to eq("MP-796")
@@ -233,7 +243,7 @@ RSpec.describe Claire::Resolver do
         )
 
         expect {
-          Claire::Resolver.resolve("99", jira: jira, github: github)
+          Claire::Resolver.resolve("99", jira: jira, github: github, cache: null_cache)
         }.to raise_error(Claire::Github::NoJiraKeyError)
       end
     end
@@ -248,8 +258,89 @@ RSpec.describe Claire::Resolver do
         )
 
         expect {
-          Claire::Resolver.resolve("99999", jira: jira, github: github)
+          Claire::Resolver.resolve("99999", jira: jira, github: github, cache: null_cache)
         }.to raise_error(Claire::Github::NotFoundError)
+      end
+    end
+
+    context "cache behaviour" do
+      it "returns a Resolution from cache and does not call Jira or Github on a cache hit" do
+        jira = instance_double(Claire::Jira)
+        github = instance_double(Claire::Github)
+        cache = instance_double(Claire::Cache)
+
+        allow(jira).to receive(:fetch_issue)
+        allow(github).to receive(:fetch)
+        allow(cache).to receive(:get).with("MP-820").and_return(
+          { "pr_url" => nil, "jira_ticket" => "MP-820", "project_code" => "PR00151" },
+        )
+
+        resolution = Claire::Resolver.resolve("MP-820", jira: jira, github: github, cache: cache)
+
+        expect(resolution.project_code).to eq("PR00151")
+        expect(resolution.jira_ticket).to eq("MP-820")
+        expect(resolution.pr_url).to be_nil
+        expect(resolution.walked_chain).to eq([])
+        expect(jira).not_to have_received(:fetch_issue)
+        expect(github).not_to have_received(:fetch)
+      end
+
+      it "resolves via Jira and writes to cache on a cache miss" do
+        jira = instance_double(Claire::Jira)
+        github = instance_double(Claire::Github)
+        cache = instance_double(Claire::Cache)
+
+        allow(cache).to receive(:get).with("MP-445").and_return(nil)
+        allow(jira).to receive(:fetch_issue).with("MP-445", fields: ["customfield_10762", "parent"]).and_return(
+          { "key" => "MP-445", "fields" => { "customfield_10762" => "PR00151", "parent" => nil } },
+        )
+        allow(cache).to receive(:put)
+
+        resolution = Claire::Resolver.resolve("MP-445", jira: jira, github: github, cache: cache)
+
+        expect(resolution.project_code).to eq("PR00151")
+        expect(cache).to have_received(:put).with(pr_url: nil, jira_ticket: "MP-445", project_code: "PR00151")
+      end
+
+      it "skips cache and re-resolves when refresh: true, then rewrites all keys" do
+        jira = instance_double(Claire::Jira)
+        github = instance_double(Claire::Github)
+        cache = instance_double(Claire::Cache)
+
+        existing_entry = { "pr_url" => nil, "jira_ticket" => "MP-445", "project_code" => "PR00151" }
+        allow(cache).to receive(:get).with("MP-445").and_return(existing_entry)
+        allow(jira).to receive(:fetch_issue).with("MP-445", fields: ["customfield_10762", "parent"]).and_return(
+          { "key" => "MP-445", "fields" => { "customfield_10762" => "PR00151", "parent" => nil } },
+        )
+        allow(cache).to receive(:delete_by_resolution)
+        allow(cache).to receive(:put)
+
+        resolution = Claire::Resolver.resolve("MP-445", jira: jira, github: github, cache: cache, refresh: true)
+
+        expect(resolution.project_code).to eq("PR00151")
+        expect(jira).to have_received(:fetch_issue)
+        expect(cache).to have_received(:delete_by_resolution).with(pr_url: nil, jira_ticket: "MP-445", project_code: "PR00151")
+        expect(cache).to have_received(:put).with(pr_url: nil, jira_ticket: "MP-445", project_code: "PR00151")
+      end
+
+      it "returns a cached Resolution for a project-code-only input without calling Jira or Github" do
+        jira = instance_double(Claire::Jira)
+        github = instance_double(Claire::Github)
+        cache = instance_double(Claire::Cache)
+
+        allow(jira).to receive(:fetch_issue)
+        allow(github).to receive(:fetch)
+        allow(cache).to receive(:get).with("PR00151").and_return(
+          { "pr_url" => nil, "jira_ticket" => nil, "project_code" => "PR00151" },
+        )
+
+        resolution = Claire::Resolver.resolve("PR00151", jira: jira, github: github, cache: cache)
+
+        expect(resolution.project_code).to eq("PR00151")
+        expect(resolution.jira_ticket).to be_nil
+        expect(resolution.walked_chain).to eq([])
+        expect(jira).not_to have_received(:fetch_issue)
+        expect(github).not_to have_received(:fetch)
       end
     end
   end

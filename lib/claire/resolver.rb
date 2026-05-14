@@ -3,6 +3,7 @@
 require "claire/config"
 require "claire/jira"
 require "claire/github"
+require "claire/cache"
 require "claire/target"
 
 module Claire
@@ -23,32 +24,57 @@ module Claire
 
     MAX_DEPTH = 5
 
-    def self.resolve(input, jira: nil, github: nil)
+    def self.resolve(input, jira: nil, github: nil, cache: nil, refresh: false)
       jira ||= Claire::Jira.new(Claire::Config.load)
       github ||= Claire::Github.new
-      new(jira, github).resolve(input)
+      cache ||= Claire::Cache.new
+      new(jira, github, cache).resolve(input, refresh: refresh)
     end
 
-    def initialize(jira, github = Claire::Github.new)
+    def initialize(jira, github = Claire::Github.new, cache = Claire::Cache.new)
       @jira = jira
       @github = github
+      @cache = cache
     end
 
-    def resolve(input)
+    def resolve(input, refresh: false)
       category = Claire::Target.classify(input)
 
-      case category
-      when :project_code
-        Resolution.new(pr_url: nil, jira_ticket: nil, walked_chain: [], project_code: input)
-      when :jira_url
-        ticket_key = extract_ticket_from_jira_url(input)
-        resolve_via_ticket(ticket_key)
-      when :ticket
-        resolve_via_ticket(input)
-      when :pr_number, :pr_url
-        pr_data = @github.fetch(input)
-        resolve_via_ticket(pr_data[:jira_ticket], pr_url: pr_data[:pr_url])
+      unless refresh
+        if (cached = @cache.get(input))
+          return Resolution.new(
+            pr_url: cached["pr_url"],
+            jira_ticket: cached["jira_ticket"],
+            walked_chain: [],
+            project_code: cached["project_code"],
+          )
+        end
       end
+
+      resolution = case category
+                   when :project_code
+                     Resolution.new(pr_url: nil, jira_ticket: nil, walked_chain: [], project_code: input)
+                   when :jira_url
+                     ticket_key = extract_ticket_from_jira_url(input)
+                     resolve_via_ticket(ticket_key)
+                   when :ticket
+                     resolve_via_ticket(input)
+                   when :pr_number, :pr_url
+                     pr_data = @github.fetch(input)
+                     resolve_via_ticket(pr_data[:jira_ticket], pr_url: pr_data[:pr_url])
+                   end
+
+      if refresh && (existing = @cache.get(input))
+        @cache.delete_by_resolution(**existing.transform_keys(&:to_sym))
+      end
+
+      @cache.put(
+        pr_url: resolution.pr_url,
+        jira_ticket: resolution.jira_ticket,
+        project_code: resolution.project_code,
+      )
+
+      resolution
     end
 
     private

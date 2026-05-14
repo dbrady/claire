@@ -41,12 +41,15 @@ when "init"
   Claire::CLI::Init.new.run
 when "check"
   require "claire/cli/check"
+  subopts = Optimist.options do
+    opt :refresh, "Bypass cache, re-resolve, and rewrite cached entries", short: "-r", default: false
+  end
   input = ARGV.shift
   if input.nil? || input.empty?
-    warn "Usage: claire check <ticket|url|project-code>"
+    warn "Usage: claire check [--refresh] <ticket|url|project-code>"
     exit 1
   end
-  Claire::CLI::Check.new.run(input)
+  Claire::CLI::Check.new.run(input, refresh: subopts[:refresh])
 when "log", "report", "edit"
   warn "claire: '#{subcommand}' is not yet implemented"
   exit 1
