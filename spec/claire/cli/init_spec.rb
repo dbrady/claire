@@ -6,6 +6,36 @@ require "tmpdir"
 require "stringio"
 
 RSpec.describe Claire::CLI::Init do
+  describe "#seed_project_names_file!" do
+    it "writes the starter project_names.yml with an example entry" do
+      dir = Dir.mktmpdir
+      init = described_class.new
+
+      init.send(:seed_project_names_file!, data_dir: dir)
+
+      path = File.join(dir, "project_names.yml")
+      expect(File.exist?(path)).to be(true)
+      content = File.read(path)
+      expect(content).to include("PREXAMPLE: Example project name")
+      expect(content).to include("claire log, check, and report")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "does not overwrite an existing project_names.yml" do
+      dir = Dir.mktmpdir
+      path = File.join(dir, "project_names.yml")
+      File.write(path, "PR00632: Black Friday Remediation\n")
+      init = described_class.new
+
+      init.send(:seed_project_names_file!, data_dir: dir)
+
+      expect(File.read(path)).to eq("PR00632: Black Friday Remediation\n")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+  end
+
   describe "#seed_aliases_file!" do
     it "writes the starter aliases.yml with an example entry" do
       dir = Dir.mktmpdir

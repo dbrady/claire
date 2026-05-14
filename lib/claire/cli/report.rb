@@ -2,14 +2,16 @@
 
 require "date"
 require "claire/report"
+require "claire/project_names"
 
 module Claire
   module CLI
     class Report
       DAY_NAMES = %w[Sun Mon Tue Wed Thu Fri Sat].freeze
 
-      def initialize(today: Date.today)
+      def initialize(today: Date.today, project_names: Claire::ProjectNames)
         @today = today
+        @project_names = project_names
       end
 
       def run(mode: :this_week, week: nil, start_date: nil, end_date: nil)
@@ -40,7 +42,8 @@ module Claire
         end
 
         all_headers = day_headers + ["TOTAL"]
-        label_width = [grid.rows.keys.map(&:length).max, 7].max
+        row_labels = grid.rows.keys.sort.map { |code| @project_names.label(code) }
+        label_width = [(row_labels + ["TOTAL"]).map(&:length).max, 7].max
         col_widths = all_headers.map { |header| [header.length, 6].max }
 
         separator = build_separator(label_width, col_widths)
@@ -51,11 +54,12 @@ module Claire
         lines << header_row
         lines << separator
 
-        grid.rows.sort.each do |project_code, day_minutes|
+        grid.rows.sort.each_with_index do |(project_code, day_minutes), index|
+          row_label = row_labels[index]
           row_total = day_minutes.sum
           cells = day_minutes.map { |minutes| Claire::Report.format_minutes(minutes) }
           cells << Claire::Report.format_minutes(row_total)
-          lines << build_data_row(project_code, cells, label_width, col_widths)
+          lines << build_data_row(row_label, cells, label_width, col_widths)
         end
 
         lines << separator

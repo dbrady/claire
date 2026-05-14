@@ -5,15 +5,18 @@ require "claire/jira"
 require "claire/github"
 require "claire/resolver"
 require "claire/clipboard"
+require "claire/project_names"
 
 module Claire
   module CLI
     class Check
       CLARITY_URL = "https://cppm10270.clarityppm.saas.broadcom.com/pm/#/projects/common"
 
-      def initialize(resolver: Claire::Resolver, clipboard: Claire::Clipboard)
+      def initialize(resolver: Claire::Resolver, clipboard: Claire::Clipboard,
+                     project_names: Claire::ProjectNames)
         @resolver = resolver
         @clipboard = clipboard
+        @project_names = project_names
       end
 
       def run(input, refresh: false)
@@ -58,11 +61,12 @@ module Claire
       end
 
       def format_walk(input, resolution)
+        label = @project_names.label(resolution.project_code)
         if resolution.walked_chain.any?
           chain = resolution.walked_chain.join(" -> ")
-          "#{chain} -> project code: #{resolution.project_code}"
+          "#{chain} -> project code: #{label}"
         else
-          "project code: #{resolution.project_code}"
+          "project code: #{label}"
         end
       end
     end

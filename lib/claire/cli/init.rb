@@ -15,6 +15,12 @@ module Claire
         EXAMPLE: PR00000
       YAML
 
+      STARTER_PROJECT_NAMES = <<~YAML
+        # Edit this file to add project names. Each entry maps a Clarity project
+        # code to a human-readable name. Used by claire log, check, and report.
+        PREXAMPLE: Example project name
+      YAML
+
       def initialize(config_path: Claire::Config.default_config_path,
                      mcp_path: Claire::Config.default_mcp_path,
                      jira_class: Claire::Jira)
@@ -46,6 +52,7 @@ module Claire
         puts "Wrote #{@config_path}"
 
         seed_aliases_file!(data_dir: data_dir)
+        seed_project_names_file!(data_dir: data_dir)
 
         config = Claire::Config.load(path: @config_path)
         display_name = @jira_class.new(config).ping_myself
@@ -62,6 +69,14 @@ module Claire
         return if File.exist?(path)
         FileUtils.mkdir_p(File.dirname(path))
         File.write(path, STARTER_ALIASES)
+        puts "Wrote #{path}"
+      end
+
+      def seed_project_names_file!(data_dir:)
+        path = File.join(data_dir, "project_names.yml")
+        return if File.exist?(path)
+        FileUtils.mkdir_p(File.dirname(path))
+        File.write(path, STARTER_PROJECT_NAMES)
         puts "Wrote #{path}"
       end
 

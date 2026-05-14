@@ -195,6 +195,18 @@ live in the data directory.
 | `~/.config/claire/config.yml` | Atlassian credentials, plus `data_dir` pointer |
 | `~/.local/share/claire/entries.jsonl` | Append-only time log; one JSON row per entry |
 | `~/.local/share/claire/resolutions.yml` | Resolution cache; safe to `rm` anytime |
+| `~/.local/share/claire/aliases.yml` | Short-name aliases for project codes; hand-edited or via `claire alias add` |
+| `~/.local/share/claire/project_names.yml` | Human-readable names for Clarity project codes; hand-edited |
+
+Edit `project_names.yml` to give your project codes readable labels. `claire
+log`, `check`, and `report` show the name alongside the code when a match is
+found. If the file is missing or a code has no entry, behavior is unchanged
+— just the bare code.
+
+```yaml
+PR00151: Platform Engineering — Merchant Portal
+PR00188: Webhook Reliability Initiative
+```
 
 Override the config directory with `$XDG_CONFIG_HOME` and the data
 directory with `$XDG_DATA_HOME`. The `data_dir` key in `config.yml` (written
