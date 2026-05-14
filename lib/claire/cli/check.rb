@@ -4,14 +4,16 @@ require "claire/config"
 require "claire/jira"
 require "claire/github"
 require "claire/resolver"
+require "claire/clipboard"
 
 module Claire
   module CLI
     class Check
       CLARITY_URL = "https://cppm10270.clarityppm.saas.broadcom.com/pm/#/projects/common"
 
-      def initialize(resolver: Claire::Resolver)
+      def initialize(resolver: Claire::Resolver, clipboard: Claire::Clipboard)
         @resolver = resolver
+        @clipboard = clipboard
       end
 
       def run(input, refresh: false)
@@ -47,6 +49,12 @@ module Claire
         puts "PR URL: #{resolution.pr_url}" if resolution.pr_url
         puts "Clarity: #{CLARITY_URL}"
         puts "  !!  manual mode: confirm you're approved for #{resolution.project_code} before logging time."
+        copied = @clipboard.copy(resolution.project_code)
+        if copied
+          shortcut = @clipboard.paste_shortcut
+          puts "           I have put #{resolution.project_code} in the clipboard. Open the URL, hit TAB and"
+          puts "           then #{shortcut} to paste into the search field."
+        end
       end
 
       def format_walk(input, resolution)
