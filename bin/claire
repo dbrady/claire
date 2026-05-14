@@ -39,7 +39,15 @@ case subcommand
 when "init"
   require "claire/cli/init"
   Claire::CLI::Init.new.run
-when "check", "log", "report", "edit"
+when "check"
+  require "claire/cli/check"
+  input = ARGV.shift
+  if input.nil? || input.empty?
+    warn "Usage: claire check <ticket|url|project-code>"
+    exit 1
+  end
+  Claire::CLI::Check.new.run(input)
+when "log", "report", "edit"
   warn "claire: '#{subcommand}' is not yet implemented"
   exit 1
 when nil
