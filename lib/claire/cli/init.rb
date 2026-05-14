@@ -6,10 +6,9 @@ require "claire/jira"
 module Claire
   module CLI
     class Init
-      CONFIG_PATH = Claire::Config.default_config_path
-      MCP_PATH = Claire::Config.default_mcp_path
-
-      def initialize(config_path: CONFIG_PATH, mcp_path: MCP_PATH, jira_class: Claire::Jira)
+      def initialize(config_path: Claire::Config.default_config_path,
+                     mcp_path: Claire::Config.default_mcp_path,
+                     jira_class: Claire::Jira)
         @config_path = config_path
         @mcp_path = mcp_path
         @jira_class = jira_class
@@ -27,14 +26,11 @@ module Claire
         puts "Wrote #{@config_path}"
 
         config = Claire::Config.load(path: @config_path)
-        result = @jira_class.new(config).ping_myself
-
-        if result[:success]
-          puts "Authenticated as: #{result[:display_name]}"
-        else
-          warn "Authentication failed (HTTP #{result[:status]}): #{result[:body]}"
-          exit 1
-        end
+        display_name = @jira_class.new(config).ping_myself
+        puts "Authenticated as: #{display_name}"
+      rescue Claire::Jira::AuthenticationError => e
+        warn "Authentication failed (HTTP #{e.status}): #{e.body}"
+        exit 1
       end
     end
   end
