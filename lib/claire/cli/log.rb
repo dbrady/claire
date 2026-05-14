@@ -8,14 +8,17 @@ require "claire/resolver"
 require "claire/duration"
 require "claire/dates"
 require "claire/log"
+require "claire/project_names"
 
 module Claire
   module CLI
     class Log
-      def initialize(resolver_class: Claire::Resolver, config: nil, today: Date.today)
+      def initialize(resolver_class: Claire::Resolver, config: nil, today: Date.today,
+                     project_names: Claire::ProjectNames)
         @resolver_class = resolver_class
         @config = config
         @today = today
+        @project_names = project_names
       end
 
       def run(target, duration_input, on: nil, note: nil, refresh: false)
@@ -36,7 +39,8 @@ module Claire
         )
 
         ticket_suffix = " (#{resolution.jira_ticket})" if resolution.jira_ticket
-        puts "logged #{minutes}m to #{resolution.project_code}#{ticket_suffix} on #{worked_on}"
+        label = @project_names.label(resolution.project_code)
+        puts "logged #{minutes}m to #{label}#{ticket_suffix} on #{worked_on}"
       rescue Claire::Jira::NotFoundError => e
         warn "claire: JIRA issue not found: #{e.key}"
         exit 1

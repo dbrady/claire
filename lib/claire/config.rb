@@ -96,6 +96,10 @@ module Claire
       File.join(default_data_dir(config: config), "aliases.yml")
     end
 
+    def self.default_project_names_path(config: nil)
+      File.join(default_data_dir(config: config), "project_names.yml")
+    end
+
     def self.default_resolutions_path(config: nil)
       File.join(default_data_dir(config: config), "resolutions.yml")
     end
