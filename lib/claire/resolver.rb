@@ -24,10 +24,11 @@ module Claire
 
     MAX_DEPTH = 5
 
-    def self.resolve(input, jira: nil, github: nil, cache: nil, refresh: false)
-      jira ||= Claire::Jira.new(Claire::Config.load)
+    def self.resolve(input, jira: nil, github: nil, cache: nil, config: nil, refresh: false)
+      loaded_config = config || Claire::Config.load
+      jira ||= Claire::Jira.new(loaded_config)
       github ||= Claire::Github.new
-      cache ||= Claire::Cache.new
+      cache ||= Claire::Cache.new(path: Claire::Config.default_resolutions_path(config: loaded_config))
       new(jira, github, cache).resolve(input, refresh: refresh)
     end
 

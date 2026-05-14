@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "fileutils"
 require "claire/config"
 require "claire/jira"
 
@@ -25,11 +26,11 @@ module Claire
 
         credentials = Claire::Config.from_mcp_json(path: @mcp_path)
 
-        data_dir = Claire::Config.default_data_dir
+        data_dir = Claire::Config.default_data_dir(config: nil)
         FileUtils.mkdir_p(data_dir)
 
         old_config_dir = File.dirname(@config_path)
-        Claire::Config.migrate_legacy_data!(
+        self.class.migrate_legacy_data!(
           from: old_config_dir,
           to: data_dir,
           filenames: LEGACY_DATA_FILENAMES,
@@ -44,6 +45,28 @@ module Claire
       rescue Claire::Jira::AuthenticationError => e
         warn "Authentication failed (HTTP #{e.status}): #{e.body}"
         exit 1
+      end
+
+      # Moves data files from the old config-dir layout into the new data dir.
+      # For each filename: if the file exists in `from` but not in `to`, moves it.
+      # Prints a header on first move and one line per moved file, with aligned arrows.
+      # output: an IO object (defaults to $stdout)
+      def self.migrate_legacy_data!(from:, to:, filenames:, output: $stdout)
+        sources = filenames.map { |f| File.join(from, f) }
+        destinations = filenames.map { |f| File.join(to, f) }
+
+        pairs = sources.zip(destinations).select do |source, destination|
+          File.exist?(source) && !File.exist?(destination)
+        end
+
+        return if pairs.empty?
+
+        width = pairs.map { |source, _| source.length }.max
+        output.puts "Migrating data files from legacy location:"
+        pairs.each do |source, destination|
+          output.puts "  #{source.ljust(width)} -> #{destination}"
+          FileUtils.mv(source, destination)
+        end
       end
     end
   end

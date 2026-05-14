@@ -3,12 +3,11 @@
 require "yaml"
 require "json"
 require "fileutils"
+require "claire/config"
 
 module Claire
   class Cache
-    DEFAULT_PATH = File.expand_path("~/.config/claire/resolutions.yml")
-
-    def initialize(path: DEFAULT_PATH)
+    def initialize(path: Claire::Config.default_resolutions_path)
       @path = path
     end
 

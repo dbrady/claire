@@ -12,18 +12,21 @@ require "claire/log"
 module Claire
   module CLI
     class Log
-      def initialize(resolver_class: Claire::Resolver, log: Claire::Log.new, today: Date.today)
+      def initialize(resolver_class: Claire::Resolver, config: nil, today: Date.today)
         @resolver_class = resolver_class
-        @log = log
+        @config = config
         @today = today
       end
 
       def run(target, duration_input, on: nil, note: nil, refresh: false)
+        config = @config || Claire::Config.load
+        log = Claire::Log.new(path: Claire::Config.default_entries_path(config: config))
+
         minutes = Claire::Duration.parse(duration_input)
         worked_on = Claire::Dates.parse(on, today: @today)
-        resolution = @resolver_class.resolve(target, refresh: refresh)
+        resolution = @resolver_class.resolve(target, refresh: refresh, config: config)
 
-        @log.append(
+        log.append(
           project_code: resolution.project_code,
           minutes: minutes,
           worked_on: worked_on,

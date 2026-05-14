@@ -104,6 +104,27 @@ RSpec.describe Claire::Config do
       FileUtils.remove_entry(dir)
     end
 
+    it "populates data_dir on the returned config when the file carries the key" do
+      dir = Dir.mktmpdir
+      config_path = File.join(dir, "config.yml")
+      explicit_data_dir = File.join(dir, "data")
+      File.write(config_path, <<~YAML)
+        atlassian:
+          site_name: mysite
+          email: me@example.com
+          api_token: secrettoken
+        user:
+          email: me@example.com
+        data_dir: #{explicit_data_dir}
+      YAML
+
+      config = Claire::Config.load(path: config_path)
+
+      expect(config.data_dir).to eq(explicit_data_dir)
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
     it "raises an informative error when the config file does not exist" do
       expect {
         Claire::Config.load(path: "/nonexistent/path/config.yml")
@@ -186,81 +207,45 @@ RSpec.describe Claire::Config do
   end
 
   describe ".default_data_dir" do
-    it "returns ~/.local/share/claire when no env var is set and no config file exists" do
+    it "returns ~/.local/share/claire when no env var is set and config: nil" do
       with_env_unset("XDG_DATA_HOME") do
         expected = File.expand_path("~/.local/share/claire")
-        expect(Claire::Config.default_data_dir).to eq(expected)
+        expect(Claire::Config.default_data_dir(config: nil)).to eq(expected)
       end
     end
 
-    it "returns $XDG_DATA_HOME/claire when XDG_DATA_HOME is set" do
+    it "returns $XDG_DATA_HOME/claire when XDG_DATA_HOME is set and config: nil" do
       dir = Dir.mktmpdir
-      with_env_unset("XDG_CONFIG_HOME") do
-        with_env("XDG_DATA_HOME", dir) do
-          expect(Claire::Config.default_data_dir).to eq(File.join(dir, "claire"))
-        end
+      with_env("XDG_DATA_HOME", dir) do
+        expect(Claire::Config.default_data_dir(config: nil)).to eq(File.join(dir, "claire"))
       end
     ensure
       FileUtils.remove_entry(dir)
     end
 
-    it "returns the explicit data_dir from config.yml when present (highest priority)" do
+    it "returns the config's data_dir when a loaded config carries one (highest priority)" do
       dir = Dir.mktmpdir
-      config_dir = File.join(dir, "claire")
-      FileUtils.mkdir_p(config_dir)
-      config_path = File.join(config_dir, "config.yml")
       explicit_data_dir = File.join(dir, "explicit-data")
-      File.write(config_path, <<~YAML)
-        atlassian:
-          site_name: mysite
-          email: me@example.com
-          api_token: token
-        user:
-          email: me@example.com
-        data_dir: #{explicit_data_dir}
-      YAML
+      config = Claire::Config.new(
+        site_name: "mysite",
+        email: "me@example.com",
+        api_token: "token",
+        data_dir: explicit_data_dir,
+      )
 
-      with_env("XDG_CONFIG_HOME", dir) do
-        with_env("XDG_DATA_HOME", File.join(dir, "should-not-use")) do
-          expect(Claire::Config.default_data_dir).to eq(explicit_data_dir)
-        end
+      with_env("XDG_DATA_HOME", File.join(dir, "should-not-use")) do
+        expect(Claire::Config.default_data_dir(config: config)).to eq(explicit_data_dir)
       end
     ensure
       FileUtils.remove_entry(dir)
     end
 
-    it "falls through to XDG_DATA_HOME when config.yml lacks data_dir key" do
+    it "falls through to XDG_DATA_HOME when config: nil is passed" do
       dir = Dir.mktmpdir
-      config_dir = File.join(dir, "claire")
-      FileUtils.mkdir_p(config_dir)
-      config_path = File.join(config_dir, "config.yml")
       xdg_data_home = File.join(dir, "xdg-data")
-      File.write(config_path, <<~YAML)
-        atlassian:
-          site_name: mysite
-          email: me@example.com
-          api_token: token
-        user:
-          email: me@example.com
-      YAML
 
-      with_env("XDG_CONFIG_HOME", dir) do
-        with_env("XDG_DATA_HOME", xdg_data_home) do
-          expect(Claire::Config.default_data_dir).to eq(File.join(xdg_data_home, "claire"))
-        end
-      end
-    ensure
-      FileUtils.remove_entry(dir)
-    end
-
-    it "does not crash when config.yml does not exist (pre-init state)" do
-      dir = Dir.mktmpdir
-
-      with_env("XDG_CONFIG_HOME", dir) do
-        with_env_unset("XDG_DATA_HOME") do
-          # No config.yml in dir/claire — should fall through to default
-          expect(Claire::Config.default_data_dir).to eq(File.expand_path("~/.local/share/claire"))
-        end
+      with_env("XDG_DATA_HOME", xdg_data_home) do
+        expect(Claire::Config.default_data_dir(config: nil)).to eq(File.join(xdg_data_home, "claire"))
       end
     ensure
       FileUtils.remove_entry(dir)
@@ -270,12 +255,25 @@ RSpec.describe Claire::Config do
   describe ".default_entries_path" do
     it "joins onto default_data_dir" do
       dir = Dir.mktmpdir
-      with_env_unset("XDG_CONFIG_HOME") do
-        with_env("XDG_DATA_HOME", dir) do
-          expected = File.join(dir, "claire", "entries.jsonl")
-          expect(Claire::Config.default_entries_path).to eq(expected)
-        end
+      with_env("XDG_DATA_HOME", dir) do
+        expected = File.join(dir, "claire", "entries.jsonl")
+        expect(Claire::Config.default_entries_path(config: nil)).to eq(expected)
       end
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "uses the config's data_dir when passed a loaded config" do
+      dir = Dir.mktmpdir
+      config = Claire::Config.new(
+        site_name: "s",
+        email: "e@e.com",
+        api_token: "t",
+        data_dir: dir,
+      )
+
+      expected = File.join(dir, "entries.jsonl")
+      expect(Claire::Config.default_entries_path(config: config)).to eq(expected)
     ensure
       FileUtils.remove_entry(dir)
     end
@@ -284,152 +282,25 @@ RSpec.describe Claire::Config do
   describe ".default_resolutions_path" do
     it "joins onto default_data_dir" do
       dir = Dir.mktmpdir
-      with_env_unset("XDG_CONFIG_HOME") do
-        with_env("XDG_DATA_HOME", dir) do
-          expected = File.join(dir, "claire", "resolutions.yml")
-          expect(Claire::Config.default_resolutions_path).to eq(expected)
-        end
+      with_env("XDG_DATA_HOME", dir) do
+        expected = File.join(dir, "claire", "resolutions.yml")
+        expect(Claire::Config.default_resolutions_path(config: nil)).to eq(expected)
       end
     ensure
       FileUtils.remove_entry(dir)
     end
-  end
 
-  describe ".migrate_legacy_data!" do
-    it "moves files that exist in the old location but not the new" do
+    it "uses the config's data_dir when passed a loaded config" do
       dir = Dir.mktmpdir
-      old_dir = File.join(dir, "old")
-      new_dir = File.join(dir, "new")
-      FileUtils.mkdir_p(old_dir)
-      FileUtils.mkdir_p(new_dir)
-      File.write(File.join(old_dir, "entries.jsonl"), '{"id":"1"}')
-
-      output = StringIO.new
-      Claire::Config.migrate_legacy_data!(
-        from: old_dir,
-        to: new_dir,
-        filenames: ["entries.jsonl", "resolutions.yml"],
-        output: output,
+      config = Claire::Config.new(
+        site_name: "s",
+        email: "e@e.com",
+        api_token: "t",
+        data_dir: dir,
       )
 
-      expect(File.exist?(File.join(new_dir, "entries.jsonl"))).to be(true)
-      expect(File.read(File.join(new_dir, "entries.jsonl"))).to eq('{"id":"1"}')
-      expect(File.exist?(File.join(old_dir, "entries.jsonl"))).to be(false)
-    ensure
-      FileUtils.remove_entry(dir)
-    end
-
-    it "skips files that do not exist in the old location" do
-      dir = Dir.mktmpdir
-      old_dir = File.join(dir, "old")
-      new_dir = File.join(dir, "new")
-      FileUtils.mkdir_p(old_dir)
-      FileUtils.mkdir_p(new_dir)
-      # resolutions.yml does NOT exist in old_dir
-
-      output = StringIO.new
-      Claire::Config.migrate_legacy_data!(
-        from: old_dir,
-        to: new_dir,
-        filenames: ["resolutions.yml"],
-        output: output,
-      )
-
-      expect(File.exist?(File.join(new_dir, "resolutions.yml"))).to be(false)
-      expect(output.string).to eq("")
-    ensure
-      FileUtils.remove_entry(dir)
-    end
-
-    it "does not overwrite a file that already exists in the new location" do
-      dir = Dir.mktmpdir
-      old_dir = File.join(dir, "old")
-      new_dir = File.join(dir, "new")
-      FileUtils.mkdir_p(old_dir)
-      FileUtils.mkdir_p(new_dir)
-      File.write(File.join(old_dir, "entries.jsonl"), "old content")
-      File.write(File.join(new_dir, "entries.jsonl"), "new content")
-
-      output = StringIO.new
-      Claire::Config.migrate_legacy_data!(
-        from: old_dir,
-        to: new_dir,
-        filenames: ["entries.jsonl"],
-        output: output,
-      )
-
-      expect(File.read(File.join(new_dir, "entries.jsonl"))).to eq("new content")
-      expect(output.string).to eq("")
-    ensure
-      FileUtils.remove_entry(dir)
-    end
-
-    it "prints a header on first move and one line per moved file" do
-      dir = Dir.mktmpdir
-      old_dir = File.join(dir, "old")
-      new_dir = File.join(dir, "new")
-      FileUtils.mkdir_p(old_dir)
-      FileUtils.mkdir_p(new_dir)
-      File.write(File.join(old_dir, "entries.jsonl"), "data")
-      File.write(File.join(old_dir, "resolutions.yml"), "cache")
-
-      output = StringIO.new
-      Claire::Config.migrate_legacy_data!(
-        from: old_dir,
-        to: new_dir,
-        filenames: ["entries.jsonl", "resolutions.yml"],
-        output: output,
-      )
-
-      lines = output.string.lines
-      expect(lines[0]).to match(/migrating data files from legacy location/i)
-      expect(lines[1]).to include("entries.jsonl")
-      expect(lines[2]).to include("resolutions.yml")
-      expect(lines.length).to eq(3)
-    ensure
-      FileUtils.remove_entry(dir)
-    end
-
-    it "prints nothing when no files need moving" do
-      dir = Dir.mktmpdir
-      old_dir = File.join(dir, "old")
-      new_dir = File.join(dir, "new")
-      FileUtils.mkdir_p(old_dir)
-      FileUtils.mkdir_p(new_dir)
-      # Nothing in old_dir
-
-      output = StringIO.new
-      Claire::Config.migrate_legacy_data!(
-        from: old_dir,
-        to: new_dir,
-        filenames: ["entries.jsonl", "resolutions.yml"],
-        output: output,
-      )
-
-      expect(output.string).to eq("")
-    ensure
-      FileUtils.remove_entry(dir)
-    end
-
-    it "is a no-op (no moves, no output) when the new dir already exists with all files" do
-      dir = Dir.mktmpdir
-      old_dir = File.join(dir, "old")
-      new_dir = File.join(dir, "new")
-      FileUtils.mkdir_p(old_dir)
-      FileUtils.mkdir_p(new_dir)
-      File.write(File.join(old_dir, "entries.jsonl"), "old data")
-      File.write(File.join(new_dir, "entries.jsonl"), "new data")
-
-      output = StringIO.new
-      Claire::Config.migrate_legacy_data!(
-        from: old_dir,
-        to: new_dir,
-        filenames: ["entries.jsonl"],
-        output: output,
-      )
-
-      expect(output.string).to eq("")
-      expect(File.read(File.join(new_dir, "entries.jsonl"))).to eq("new data")
+      expected = File.join(dir, "resolutions.yml")
+      expect(Claire::Config.default_resolutions_path(config: config)).to eq(expected)
     ensure
       FileUtils.remove_entry(dir)
     end
