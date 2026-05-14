@@ -30,15 +30,52 @@ module Claire
       end
 
       def run
+        data_dir = Claire::Config.default_data_dir(config: nil)
+
+        # Legacy upgrade path: config.yml already exists in the old config-dir
+        # location but the data dir has not been created yet. This is the expected
+        # state for a user upgrading from a pre-S13 claire. Migrate data files,
+        # rewrite the config to include data_dir, then finish the normal init
+        # steps. Do NOT refuse — this is not a re-init, it is an upgrade.
+        if File.exist?(@config_path) && !File.exist?(data_dir)
+          FileUtils.mkdir_p(data_dir)
+
+          old_config_dir = File.dirname(@config_path)
+          self.class.migrate_legacy_data!(
+            from: old_config_dir,
+            to: data_dir,
+            filenames: LEGACY_DATA_FILENAMES,
+          )
+
+          existing = Claire::Config.load(path: @config_path)
+          Claire::Config.write!(
+            path: @config_path,
+            data_dir: data_dir,
+            site_name: existing.site_name,
+            email: existing.email,
+            api_token: existing.api_token,
+          )
+          puts "Updated #{@config_path}"
+
+          seed_aliases_file!(data_dir: data_dir)
+          seed_project_names_file!(data_dir: data_dir)
+
+          config = Claire::Config.load(path: @config_path)
+          display_name = @jira_class.new(config).ping_myself
+          puts "Authenticated as: #{display_name}"
+          return
+        end
+
+        # Modern re-init guard: config.yml AND the data dir both exist already.
         if File.exist?(@config_path)
           warn "claire: config already exists at #{@config_path}"
           warn "Remove it manually if you want to re-initialize."
           exit 1
         end
 
+        # Fresh init path: nothing exists yet.
         credentials = Claire::Config.from_mcp_json(path: @mcp_path)
 
-        data_dir = Claire::Config.default_data_dir(config: nil)
         FileUtils.mkdir_p(data_dir)
 
         old_config_dir = File.dirname(@config_path)

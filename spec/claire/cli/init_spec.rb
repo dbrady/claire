@@ -66,6 +66,112 @@ RSpec.describe Claire::CLI::Init do
     end
   end
 
+  describe "#run" do
+    context "legacy upgrade path: config.yml exists in config dir, no data dir yet" do
+      it "migrates entries.jsonl to the data dir and updates config with data_dir" do
+        dir = Dir.mktmpdir("claire-legacy-spec")
+        config_dir = File.join(dir, ".config", "claire")
+        data_dir = File.join(dir, ".local", "share", "claire")
+        FileUtils.mkdir_p(config_dir)
+
+        config_path = File.join(config_dir, "config.yml")
+        File.write(config_path, <<~YAML)
+          ---
+          atlassian:
+            site_name: acme
+            email: alice@acme.com
+            api_token: secret
+          user:
+            email: alice@acme.com
+        YAML
+        entries_old = File.join(config_dir, "entries.jsonl")
+        File.write(entries_old, "{\"id\":\"1\"}\n")
+        resolutions_old = File.join(config_dir, "resolutions.yml")
+        File.write(resolutions_old, "---\n{}\n")
+
+        fake_jira = class_double(Claire::Jira)
+        fake_jira_instance = instance_double(Claire::Jira, ping_myself: "Alice")
+        allow(fake_jira).to receive(:new).and_return(fake_jira_instance)
+
+        init = described_class.new(
+          config_path: config_path,
+          jira_class: fake_jira,
+        )
+
+        # Intercept the XDG data dir so migration targets our tmpdir
+        allow(Claire::Config).to receive(:default_data_dir).with(config: nil).and_return(data_dir)
+
+        expect { init.run }.not_to raise_error
+
+        expect(File.exist?(File.join(data_dir, "entries.jsonl"))).to be(true)
+        expect(File.read(File.join(data_dir, "entries.jsonl"))).to eq("{\"id\":\"1\"}\n")
+        expect(File.exist?(entries_old)).to be(false)
+
+        expect(File.exist?(File.join(data_dir, "resolutions.yml"))).to be(true)
+        expect(File.exist?(resolutions_old)).to be(false)
+
+        config = Claire::Config.load(path: config_path)
+        expect(config.data_dir).to eq(data_dir)
+      ensure
+        FileUtils.remove_entry(dir)
+      end
+
+      it "does not refuse with 'config already exists' — exits 0" do
+        dir = Dir.mktmpdir("claire-legacy-spec")
+        config_dir = File.join(dir, ".config", "claire")
+        data_dir = File.join(dir, ".local", "share", "claire")
+        FileUtils.mkdir_p(config_dir)
+
+        config_path = File.join(config_dir, "config.yml")
+        File.write(config_path, <<~YAML)
+          ---
+          atlassian:
+            site_name: acme
+            email: alice@acme.com
+            api_token: secret
+          user:
+            email: alice@acme.com
+        YAML
+
+        fake_jira = class_double(Claire::Jira)
+        fake_jira_instance = instance_double(Claire::Jira, ping_myself: "Alice")
+        allow(fake_jira).to receive(:new).and_return(fake_jira_instance)
+
+        init = described_class.new(
+          config_path: config_path,
+          jira_class: fake_jira,
+        )
+
+        allow(Claire::Config).to receive(:default_data_dir).with(config: nil).and_return(data_dir)
+
+        expect { init.run }.not_to raise_error
+      ensure
+        FileUtils.remove_entry(dir)
+      end
+    end
+
+    context "modern install: config.yml AND data_dir both exist" do
+      it "refuses with exit 1" do
+        dir = Dir.mktmpdir("claire-modern-spec")
+        config_dir = File.join(dir, ".config", "claire")
+        data_dir = File.join(dir, ".local", "share", "claire")
+        FileUtils.mkdir_p(config_dir)
+        FileUtils.mkdir_p(data_dir)
+
+        config_path = File.join(config_dir, "config.yml")
+        File.write(config_path, "existing config\n")
+
+        init = described_class.new(config_path: config_path)
+
+        allow(Claire::Config).to receive(:default_data_dir).with(config: nil).and_return(data_dir)
+
+        expect { init.run }.to raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
+      ensure
+        FileUtils.remove_entry(dir)
+      end
+    end
+  end
+
   describe ".migrate_legacy_data!" do
     it "moves files that exist in the old location but not the new" do
       dir = Dir.mktmpdir
