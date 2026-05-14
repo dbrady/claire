@@ -92,6 +92,10 @@ module Claire
       File.expand_path("~/.local/share/claire")
     end
 
+    def self.default_aliases_path(config: nil)
+      File.join(default_data_dir(config: config), "aliases.yml")
+    end
+
     def self.default_resolutions_path(config: nil)
       File.join(default_data_dir(config: config), "resolutions.yml")
     end

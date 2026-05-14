@@ -6,6 +6,36 @@ require "tmpdir"
 require "stringio"
 
 RSpec.describe Claire::CLI::Init do
+  describe "#seed_aliases_file!" do
+    it "writes the starter aliases.yml with an example entry" do
+      dir = Dir.mktmpdir
+      init = described_class.new
+
+      init.send(:seed_aliases_file!, data_dir: dir)
+
+      path = File.join(dir, "aliases.yml")
+      expect(File.exist?(path)).to be(true)
+      content = File.read(path)
+      expect(content).to include("EXAMPLE: PR00000")
+      expect(content).to include("claire alias add")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "does not overwrite an existing aliases.yml" do
+      dir = Dir.mktmpdir
+      path = File.join(dir, "aliases.yml")
+      File.write(path, "BF: PR00673\n")
+      init = described_class.new
+
+      init.send(:seed_aliases_file!, data_dir: dir)
+
+      expect(File.read(path)).to eq("BF: PR00673\n")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+  end
+
   describe ".migrate_legacy_data!" do
     it "moves files that exist in the old location but not the new" do
       dir = Dir.mktmpdir

@@ -4,6 +4,7 @@ require "claire/config"
 require "claire/jira"
 require "claire/github"
 require "claire/cache"
+require "claire/aliases"
 require "claire/target"
 
 module Claire
@@ -24,21 +25,29 @@ module Claire
 
     MAX_DEPTH = 5
 
-    def self.resolve(input, jira: nil, github: nil, cache: nil, config: nil, refresh: false)
+    def self.resolve(input, jira: nil, github: nil, cache: nil, config: nil, aliases: nil, refresh: false)
       loaded_config = config || Claire::Config.load
       jira ||= Claire::Jira.new(loaded_config)
       github ||= Claire::Github.new
       cache ||= Claire::Cache.new(path: Claire::Config.default_resolutions_path(config: loaded_config))
-      new(jira, github, cache).resolve(input, refresh: refresh)
+      aliases ||= Claire::Aliases.new(path: Claire::Config.default_aliases_path(config: loaded_config))
+      new(jira, github, cache, aliases).resolve(input, refresh: refresh)
     end
 
-    def initialize(jira, github = Claire::Github.new, cache = Claire::Cache.new)
+    def initialize(jira, github = Claire::Github.new, cache = Claire::Cache.new, aliases = Claire::Aliases.new)
       @jira = jira
       @github = github
       @cache = cache
+      @aliases = aliases
     end
 
     def resolve(input, refresh: false)
+      # Substitute alias before classifying. Aliases always point at project codes,
+      # so the substituted value hits the project-code short-circuit below.
+      if (resolved = @aliases.lookup(input))
+        input = resolved
+      end
+
       # Raw project-code inputs bypass cache entirely (read AND write).
       # The resolution is trivial and there is nothing to cache. More importantly,
       # writing would clobber a richer enriched entry (jira_ticket, pr_url) that
