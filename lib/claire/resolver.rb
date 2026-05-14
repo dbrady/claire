@@ -51,6 +51,12 @@ module Claire
         end
       end
 
+      # On refresh: cascade-delete BEFORE live resolve, so a failing
+      # resolve leaves the cache empty (not stale) for this triple.
+      if refresh && (existing = @cache.get(input))
+        @cache.delete_by_resolution(**existing.transform_keys(&:to_sym))
+      end
+
       resolution = case category
                    when :project_code
                      Resolution.new(pr_url: nil, jira_ticket: nil, walked_chain: [], project_code: input)
@@ -63,10 +69,6 @@ module Claire
                      pr_data = @github.fetch(input)
                      resolve_via_ticket(pr_data[:jira_ticket], pr_url: pr_data[:pr_url])
                    end
-
-      if refresh && (existing = @cache.get(input))
-        @cache.delete_by_resolution(**existing.transform_keys(&:to_sym))
-      end
 
       @cache.put(
         pr_url: resolution.pr_url,

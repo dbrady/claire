@@ -323,6 +323,23 @@ RSpec.describe Claire::Resolver do
         expect(cache).to have_received(:put).with(pr_url: nil, jira_ticket: "MP-445", project_code: "PR00151")
       end
 
+      it "deletes the existing cache entry BEFORE live-resolving on refresh, even when live-resolve raises" do
+        jira = instance_double(Claire::Jira)
+        github = instance_double(Claire::Github)
+        cache = instance_double(Claire::Cache)
+
+        existing_entry = { "pr_url" => nil, "jira_ticket" => "MP-820", "project_code" => "PR00151" }
+        allow(cache).to receive(:get).with("MP-820").and_return(existing_entry)
+        allow(cache).to receive(:delete_by_resolution)
+        allow(jira).to receive(:fetch_issue).and_raise(RuntimeError, "network error")
+
+        expect {
+          Claire::Resolver.resolve("MP-820", jira: jira, github: github, cache: cache, refresh: true)
+        }.to raise_error(RuntimeError, "network error")
+
+        expect(cache).to have_received(:delete_by_resolution).with(pr_url: nil, jira_ticket: "MP-820", project_code: "PR00151")
+      end
+
       it "returns a cached Resolution for a project-code-only input without calling Jira or Github" do
         jira = instance_double(Claire::Jira)
         github = instance_double(Claire::Github)
