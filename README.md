@@ -20,7 +20,7 @@ When you tell claire `log MP-820 30`, it:
 1. Reads the JIRA ticket `MP-820`.
 2. Walks up its parent chain (sub-task → story → epic) looking for the
    "Project Code" custom field — Clarity-managed values like `PR00151`.
-3. Appends a single JSONL row to `~/.config/claire/entries.jsonl` recording
+3. Appends a single JSONL row to `~/.local/share/claire/entries.jsonl` recording
    the minutes, the date, the ticket, and the project code.
 
 When you run `claire report`, it reads that JSONL file and shows you the
@@ -181,19 +181,50 @@ Internally stored as integer minutes; the report shows decimal hours.
 
 - `claire check --refresh <thing>` / `claire log --refresh <thing> ...` —
   bypass the resolution cache and re-resolve from JIRA / GitHub. The cache
-  lives at `~/.config/claire/resolutions.yml`; the nuclear refresh is to
+  lives at `~/.local/share/claire/resolutions.yml`; the nuclear refresh is to
   `rm` it.
 
 ## Files
 
+claire follows the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/).
+Credentials stay in the config directory; the time log and resolver cache
+live in the data directory.
+
 | Path | Purpose |
 |---|---|
-| `~/.config/claire/config.yml` | Atlassian credentials (site, email, token) |
-| `~/.config/claire/entries.jsonl` | Append-only time log; one JSON row per entry |
-| `~/.config/claire/resolutions.yml` | Resolution cache; safe to `rm` anytime |
+| `~/.config/claire/config.yml` | Atlassian credentials, plus `data_dir` pointer |
+| `~/.local/share/claire/entries.jsonl` | Append-only time log; one JSON row per entry |
+| `~/.local/share/claire/resolutions.yml` | Resolution cache; safe to `rm` anytime |
 
-All three are plain text, all three are grep-friendly, all three live in one
-directory that you can back up by copying.
+Override the config directory with `$XDG_CONFIG_HOME` and the data
+directory with `$XDG_DATA_HOME`. The `data_dir` key in `config.yml` (written
+by `claire init`) takes priority over the env var.
+
+### Migration from the pre-S13 layout
+
+If you ran an older version of claire, your data files are in
+`~/.config/claire/`. Running `claire init` on a fresh install detects this
+and moves them automatically:
+
+```
+$ claire init
+Migrating data files from legacy location:
+  ~/.config/claire/entries.jsonl    -> ~/.local/share/claire/entries.jsonl
+  ~/.config/claire/resolutions.yml  -> ~/.local/share/claire/resolutions.yml
+Wrote ~/.config/claire/config.yml
+Authenticated as: David Brady
+```
+
+If you have already initialized (config.yml exists), claire will refuse to
+run `claire init` again. In that case, move the files by hand:
+
+```sh
+mkdir -p ~/.local/share/claire
+mv ~/.config/claire/entries.jsonl ~/.local/share/claire/
+mv ~/.config/claire/resolutions.yml ~/.local/share/claire/
+```
+
+Then add `data_dir: /Users/you/.local/share/claire` to `~/.config/claire/config.yml`.
 
 ## Claude Code skill
 
@@ -219,8 +250,8 @@ get the resolution and logging without retyping anything.
 ## Status
 
 This is a personal-productivity tool. It runs entirely on your laptop, writes
-only to `~/.config/claire/`, and has no production dependencies beyond your
-JIRA and GitHub credentials.
+only to `~/.config/claire/` and `~/.local/share/claire/`, and has no
+production dependencies beyond your JIRA and GitHub credentials.
 
 The Clarity integration is currently manual: `claire check` prints the
 project's Clarity URL with a reminder to confirm approval before logging

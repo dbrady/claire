@@ -6,6 +6,8 @@ require "claire/jira"
 module Claire
   module CLI
     class Init
+      LEGACY_DATA_FILENAMES = ["entries.jsonl", "resolutions.yml"].freeze
+
       def initialize(config_path: Claire::Config.default_config_path,
                      mcp_path: Claire::Config.default_mcp_path,
                      jira_class: Claire::Jira)
@@ -22,7 +24,18 @@ module Claire
         end
 
         credentials = Claire::Config.from_mcp_json(path: @mcp_path)
-        Claire::Config.write!(path: @config_path, **credentials)
+
+        data_dir = Claire::Config.default_data_dir
+        FileUtils.mkdir_p(data_dir)
+
+        old_config_dir = File.dirname(@config_path)
+        Claire::Config.migrate_legacy_data!(
+          from: old_config_dir,
+          to: data_dir,
+          filenames: LEGACY_DATA_FILENAMES,
+        )
+
+        Claire::Config.write!(path: @config_path, data_dir: data_dir, **credentials)
         puts "Wrote #{@config_path}"
 
         config = Claire::Config.load(path: @config_path)
