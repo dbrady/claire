@@ -63,6 +63,8 @@ module Claire
         raise InvalidValueError, "alias values must be project codes, not URLs. Got: #{value}"
       when :project_code
         # ok
+      else
+        raise InvalidValueError, "unrecognized value type for #{value.inspect}"
       end
     end
 

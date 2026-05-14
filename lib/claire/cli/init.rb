@@ -55,6 +55,8 @@ module Claire
         exit 1
       end
 
+      private
+
       def seed_aliases_file!(data_dir:)
         path = File.join(data_dir, "aliases.yml")
         return if File.exist?(path)
