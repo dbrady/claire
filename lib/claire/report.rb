@@ -38,9 +38,9 @@ module Claire
     # @raise [ArgumentError] if end_date < start_date or range spans more than 14 days
     def self.range(entries_path: Claire::Config.default_entries_path, start_date:, end_date:)
       raise ArgumentError, "end_date must be >= start_date" if end_date < start_date
-      raise ArgumentError, "range too wide for table output; narrow it or skip it" if (end_date - start_date) > 13
 
       days = (start_date..end_date).to_a
+      raise ArgumentError, "range too wide for table output; narrow it or skip it" if days.length > 14
 
       minute_map = Hash.new { |hash, key| hash[key] = Hash.new(0) }
 

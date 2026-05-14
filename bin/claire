@@ -80,25 +80,30 @@ when "report"
     exit 1
   end
 
+  present = []
+  present << :last  if positional == "last"
+  present << :week  if subopts[:week]
+  present << :start if subopts[:start]
+  present << :end   if subopts[:end]
+
   cli = Claire::CLI::Report.new
-  case
-  when positional == "last" && subopts[:week].nil? && subopts[:start].nil? && subopts[:end].nil?
-    cli.run(mode: :last_week)
-  when subopts[:week] && positional.nil? && subopts[:start].nil? && subopts[:end].nil?
-    cli.run(mode: :specific_week, week: parse_iso(subopts[:week]))
-  when subopts[:start] && subopts[:end] && positional.nil? && subopts[:week].nil?
-    cli.run(mode: :range, start_date: parse_iso(subopts[:start]), end_date: parse_iso(subopts[:end]))
-  when subopts[:start] && subopts[:end].nil?
-    warn "claire report: --start requires --end"
-    exit 1
-  when subopts[:end] && subopts[:start].nil?
-    warn "claire report: --end requires --start"
-    exit 1
-  when positional.nil? && subopts[:week].nil? && subopts[:start].nil? && subopts[:end].nil?
+  case present
+  when []
     cli.run(mode: :this_week)
+  when [:last]
+    cli.run(mode: :last_week)
+  when [:week]
+    cli.run(mode: :specific_week, week: parse_iso(subopts[:week]))
+  when [:start, :end]
+    cli.run(mode: :range,
+            start_date: parse_iso(subopts[:start]),
+            end_date:   parse_iso(subopts[:end]))
+  when [:start]
+    warn "claire report: --start requires --end"; exit 1
+  when [:end]
+    warn "claire report: --end requires --start"; exit 1
   else
-    warn "claire report: cannot mix `last`, --week, and --start/--end"
-    exit 1
+    warn "claire report: cannot mix `last`, --week, and --start/--end"; exit 1
   end
 when "edit"
   warn "claire: '#{subcommand}' is not yet implemented"
