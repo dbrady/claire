@@ -285,14 +285,14 @@ RSpec.describe Claire::CLI::Init do
       FileUtils.remove_entry(dir)
     end
 
-    it "does not overwrite a file that already exists in the new location" do
+    it "backs up the destination and replaces it with the legacy source when both files exist" do
       dir = Dir.mktmpdir
       old_dir = File.join(dir, "old")
       new_dir = File.join(dir, "new")
       FileUtils.mkdir_p(old_dir)
       FileUtils.mkdir_p(new_dir)
-      File.write(File.join(old_dir, "entries.jsonl"), "old content")
-      File.write(File.join(new_dir, "entries.jsonl"), "new content")
+      File.write(File.join(old_dir, "entries.jsonl"), "legacy content")
+      File.write(File.join(new_dir, "entries.jsonl"), "existing destination content")
 
       output = StringIO.new
       described_class.migrate_legacy_data!(
@@ -302,8 +302,9 @@ RSpec.describe Claire::CLI::Init do
         output: output,
       )
 
-      expect(File.read(File.join(new_dir, "entries.jsonl"))).to eq("new content")
-      expect(output.string).to eq("")
+      expect(File.read(File.join(new_dir, "entries.jsonl"))).to eq("legacy content")
+      expect(File.read(File.join(new_dir, "entries.jsonl.bak"))).to eq("existing destination content")
+      expect(File.exist?(File.join(old_dir, "entries.jsonl"))).to be(false)
     ensure
       FileUtils.remove_entry(dir)
     end
@@ -359,14 +360,14 @@ RSpec.describe Claire::CLI::Init do
       FileUtils.remove_entry(dir)
     end
 
-    it "is a no-op (no moves, no output) when the new dir already exists with all files" do
+    it "prints the backup line before the move line when there is a conflict" do
       dir = Dir.mktmpdir
       old_dir = File.join(dir, "old")
       new_dir = File.join(dir, "new")
       FileUtils.mkdir_p(old_dir)
       FileUtils.mkdir_p(new_dir)
-      File.write(File.join(old_dir, "entries.jsonl"), "old data")
-      File.write(File.join(new_dir, "entries.jsonl"), "new data")
+      File.write(File.join(old_dir, "entries.jsonl"), "legacy content")
+      File.write(File.join(new_dir, "entries.jsonl"), "existing content")
 
       output = StringIO.new
       described_class.migrate_legacy_data!(
@@ -376,8 +377,137 @@ RSpec.describe Claire::CLI::Init do
         output: output,
       )
 
-      expect(output.string).to eq("")
-      expect(File.read(File.join(new_dir, "entries.jsonl"))).to eq("new data")
+      lines = output.string.lines
+      backup_line_index = lines.index { |l| l.include?("backed up existing") }
+      move_line_index = lines.rindex { |l| l.include?("entries.jsonl") && !l.include?("backed up") }
+      expect(backup_line_index).not_to be_nil
+      expect(move_line_index).not_to be_nil
+      expect(backup_line_index).to be < move_line_index
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "backs up both files when both destinations already exist (multi-file conflict)" do
+      dir = Dir.mktmpdir
+      old_dir = File.join(dir, "old")
+      new_dir = File.join(dir, "new")
+      FileUtils.mkdir_p(old_dir)
+      FileUtils.mkdir_p(new_dir)
+      File.write(File.join(old_dir, "entries.jsonl"), "legacy entries")
+      File.write(File.join(new_dir, "entries.jsonl"), "existing entries")
+      File.write(File.join(old_dir, "resolutions.yml"), "legacy resolutions")
+      File.write(File.join(new_dir, "resolutions.yml"), "existing resolutions")
+
+      output = StringIO.new
+      described_class.migrate_legacy_data!(
+        from: old_dir,
+        to: new_dir,
+        filenames: ["entries.jsonl", "resolutions.yml"],
+        output: output,
+      )
+
+      expect(File.read(File.join(new_dir, "entries.jsonl"))).to eq("legacy entries")
+      expect(File.read(File.join(new_dir, "entries.jsonl.bak"))).to eq("existing entries")
+      expect(File.read(File.join(new_dir, "resolutions.yml"))).to eq("legacy resolutions")
+      expect(File.read(File.join(new_dir, "resolutions.yml.bak"))).to eq("existing resolutions")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "backs up only the conflicting file when only one of two destinations exists" do
+      dir = Dir.mktmpdir
+      old_dir = File.join(dir, "old")
+      new_dir = File.join(dir, "new")
+      FileUtils.mkdir_p(old_dir)
+      FileUtils.mkdir_p(new_dir)
+      File.write(File.join(old_dir, "entries.jsonl"), "legacy entries")
+      File.write(File.join(new_dir, "entries.jsonl"), "existing entries")
+      File.write(File.join(old_dir, "resolutions.yml"), "legacy resolutions")
+      # resolutions.yml does NOT exist in new_dir
+
+      output = StringIO.new
+      described_class.migrate_legacy_data!(
+        from: old_dir,
+        to: new_dir,
+        filenames: ["entries.jsonl", "resolutions.yml"],
+        output: output,
+      )
+
+      expect(File.read(File.join(new_dir, "entries.jsonl"))).to eq("legacy entries")
+      expect(File.read(File.join(new_dir, "entries.jsonl.bak"))).to eq("existing entries")
+      expect(File.read(File.join(new_dir, "resolutions.yml"))).to eq("legacy resolutions")
+      expect(File.exist?(File.join(new_dir, "resolutions.yml.bak"))).to be(false)
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "overwrites a pre-existing .bak file silently when re-running migration" do
+      dir = Dir.mktmpdir
+      old_dir = File.join(dir, "old")
+      new_dir = File.join(dir, "new")
+      FileUtils.mkdir_p(old_dir)
+      FileUtils.mkdir_p(new_dir)
+      File.write(File.join(old_dir, "entries.jsonl"), "legacy content")
+      File.write(File.join(new_dir, "entries.jsonl"), "current destination content")
+      File.write(File.join(new_dir, "entries.jsonl.bak"), "old bak from prior run")
+
+      output = StringIO.new
+      described_class.migrate_legacy_data!(
+        from: old_dir,
+        to: new_dir,
+        filenames: ["entries.jsonl"],
+        output: output,
+      )
+
+      expect(File.read(File.join(new_dir, "entries.jsonl"))).to eq("legacy content")
+      expect(File.read(File.join(new_dir, "entries.jsonl.bak"))).to eq("current destination content")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "creates a backup even when destination is empty" do
+      dir = Dir.mktmpdir
+      old_dir = File.join(dir, "old")
+      new_dir = File.join(dir, "new")
+      FileUtils.mkdir_p(old_dir)
+      FileUtils.mkdir_p(new_dir)
+      File.write(File.join(old_dir, "entries.jsonl"), "legacy content")
+      File.write(File.join(new_dir, "entries.jsonl"), "")
+
+      output = StringIO.new
+      described_class.migrate_legacy_data!(
+        from: old_dir,
+        to: new_dir,
+        filenames: ["entries.jsonl"],
+        output: output,
+      )
+
+      expect(File.read(File.join(new_dir, "entries.jsonl"))).to eq("legacy content")
+      expect(File.read(File.join(new_dir, "entries.jsonl.bak"))).to eq("")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "migrates and backs up when the new dir already exists with all files" do
+      dir = Dir.mktmpdir
+      old_dir = File.join(dir, "old")
+      new_dir = File.join(dir, "new")
+      FileUtils.mkdir_p(old_dir)
+      FileUtils.mkdir_p(new_dir)
+      File.write(File.join(old_dir, "entries.jsonl"), "legacy data")
+      File.write(File.join(new_dir, "entries.jsonl"), "existing data")
+
+      output = StringIO.new
+      described_class.migrate_legacy_data!(
+        from: old_dir,
+        to: new_dir,
+        filenames: ["entries.jsonl"],
+        output: output,
+      )
+
+      expect(File.read(File.join(new_dir, "entries.jsonl"))).to eq("legacy data")
+      expect(File.read(File.join(new_dir, "entries.jsonl.bak"))).to eq("existing data")
+      expect(output.string).to include("backed up existing")
     ensure
       FileUtils.remove_entry(dir)
     end

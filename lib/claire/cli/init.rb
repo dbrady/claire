@@ -142,8 +142,8 @@ module Claire
         sources = filenames.map { |f| File.join(from, f) }
         destinations = filenames.map { |f| File.join(to, f) }
 
-        pairs = sources.zip(destinations).select do |source, destination|
-          File.exist?(source) && !File.exist?(destination)
+        pairs = sources.zip(destinations).select do |source, _|
+          File.exist?(source)
         end
 
         return if pairs.empty?
@@ -151,6 +151,11 @@ module Claire
         width = pairs.map { |source, _| source.length }.max
         output.puts "Migrating data files from legacy location:"
         pairs.each do |source, destination|
+          if File.exist?(destination)
+            backup = "#{destination}.bak"
+            FileUtils.mv(destination, backup, force: true)
+            output.puts "  backed up existing #{destination} -> #{backup}"
+          end
           output.puts "  #{source.ljust(width)} -> #{destination}"
           FileUtils.mv(source, destination)
         end
