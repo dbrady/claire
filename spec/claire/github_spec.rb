@@ -111,5 +111,26 @@ RSpec.describe Claire::Github do
         }.to raise_error(Claire::Github::Error, /something went terribly wrong/)
       end
     end
+
+    context "when gh is not installed (Errno::ENOENT)" do
+      it "raises Claire::Github::Error with an install-instruction message" do
+        allow(Open3).to receive(:capture3).and_raise(Errno::ENOENT)
+
+        expect {
+          github.fetch("17343")
+        }.to raise_error(Claire::Github::Error, /gh CLI not found on PATH/)
+      end
+    end
+
+    context "when gh succeeds but stdout is not valid JSON" do
+      it "raises Claire::Github::Error with a 'could not parse gh output' message" do
+        status = instance_double(Process::Status, success?: true)
+        allow(Open3).to receive(:capture3).and_return(["not valid json {{{", "", status])
+
+        expect {
+          github.fetch("17343")
+        }.to raise_error(Claire::Github::Error, /could not parse gh output/)
+      end
+    end
   end
 end

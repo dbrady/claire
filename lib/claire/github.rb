@@ -50,6 +50,10 @@ module Claire
         pr_url: data["url"],
         jira_ticket: jira_ticket,
       }
+    rescue Errno::ENOENT
+      raise Error, "gh CLI not found on PATH. Install from https://cli.github.com/"
+    rescue JSON::ParserError => e
+      raise Error, "could not parse gh output: #{e.message}"
     end
 
     private
