@@ -264,6 +264,95 @@ RSpec.describe Claire::Resolver do
       end
     end
 
+    context "legacy project code filtering during the walk" do
+      it "skips a legacy-pattern project code on the parent and walks further up to the grandparent" do
+        jira = instance_double(Claire::Jira)
+        # MP-814: no project code
+        allow(jira).to receive(:fetch_issue).with("MP-814", fields: ["customfield_10762", "parent"]).and_return(
+          {
+            "key" => "MP-814",
+            "fields" => {
+              "customfield_10762" => nil,
+              "parent" => { "key" => "MP-4" },
+            },
+          },
+        )
+        # MP-4: legacy code (must be skipped)
+        allow(jira).to receive(:fetch_issue).with("MP-4", fields: ["customfield_10762", "parent"]).and_return(
+          {
+            "key" => "MP-4",
+            "fields" => {
+              "customfield_10762" => "A25-1D861",
+              "parent" => { "key" => "UPP-953" },
+            },
+          },
+        )
+        # UPP-953: real current code (returned)
+        allow(jira).to receive(:fetch_issue).with("UPP-953", fields: ["customfield_10762", "parent"]).and_return(
+          {
+            "key" => "UPP-953",
+            "fields" => {
+              "customfield_10762" => "PR00206",
+              "parent" => nil,
+            },
+          },
+        )
+
+        resolution = Claire::Resolver.resolve("MP-814", jira: jira, cache: null_cache)
+
+        expect(resolution.project_code).to eq("PR00206")
+        expect(resolution.jira_ticket).to eq("MP-814")
+        expect(resolution.walked_chain).to eq(["MP-814", "MP-4", "UPP-953"])
+      end
+
+      it "skips legacy codes at multiple levels and finds a non-legacy code further up" do
+        jira = instance_double(Claire::Jira)
+        allow(jira).to receive(:fetch_issue).with("CHILD-1", fields: ["customfield_10762", "parent"]).and_return(
+          { "key" => "CHILD-1", "fields" => { "customfield_10762" => nil, "parent" => { "key" => "MID-1" } } },
+        )
+        allow(jira).to receive(:fetch_issue).with("MID-1", fields: ["customfield_10762", "parent"]).and_return(
+          { "key" => "MID-1", "fields" => { "customfield_10762" => "B26-XYZ77", "parent" => { "key" => "TOP-1" } } },
+        )
+        allow(jira).to receive(:fetch_issue).with("TOP-1", fields: ["customfield_10762", "parent"]).and_return(
+          { "key" => "TOP-1", "fields" => { "customfield_10762" => "C24-AAAAA", "parent" => { "key" => "ROOT-1" } } },
+        )
+        allow(jira).to receive(:fetch_issue).with("ROOT-1", fields: ["customfield_10762", "parent"]).and_return(
+          { "key" => "ROOT-1", "fields" => { "customfield_10762" => "PR99999", "parent" => nil } },
+        )
+
+        resolution = Claire::Resolver.resolve("CHILD-1", jira: jira, cache: null_cache)
+
+        expect(resolution.project_code).to eq("PR99999")
+        expect(resolution.walked_chain).to eq(["CHILD-1", "MID-1", "TOP-1", "ROOT-1"])
+      end
+
+      it "raises NoProjectCodeError when the entire chain has only legacy codes" do
+        jira = instance_double(Claire::Jira)
+        allow(jira).to receive(:fetch_issue).with("CHILD-1", fields: ["customfield_10762", "parent"]).and_return(
+          { "key" => "CHILD-1", "fields" => { "customfield_10762" => "A25-AAAA1", "parent" => { "key" => "TOP-1" } } },
+        )
+        allow(jira).to receive(:fetch_issue).with("TOP-1", fields: ["customfield_10762", "parent"]).and_return(
+          { "key" => "TOP-1", "fields" => { "customfield_10762" => "B26-BBBB2", "parent" => nil } },
+        )
+
+        expect {
+          Claire::Resolver.resolve("CHILD-1", jira: jira, cache: null_cache)
+        }.to raise_error(Claire::Resolver::NoProjectCodeError, /CHILD-1/)
+      end
+
+      it "accepts a legacy-shaped string typed directly by the user as a project code and returns it without a walk" do
+        jira = instance_double(Claire::Jira)
+        allow(jira).to receive(:fetch_issue)
+
+        resolution = Claire::Resolver.resolve("A25-1D861", jira: jira, cache: null_cache)
+
+        expect(resolution.project_code).to eq("A25-1D861")
+        expect(resolution.jira_ticket).to be_nil
+        expect(resolution.walked_chain).to eq([])
+        expect(jira).not_to have_received(:fetch_issue)
+      end
+    end
+
     context "cache behaviour" do
       it "returns a Resolution from cache and does not call Jira or Github on a cache hit" do
         jira = instance_double(Claire::Jira)

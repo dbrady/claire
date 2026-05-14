@@ -25,6 +25,12 @@ module Claire
 
     MAX_DEPTH = 5
 
+    # Values from the previous project tracking system (e.g. "A25-1D861" —
+    # one letter, two-digit year, hyphen, short alphanumeric). Left in
+    # customfield_10762 by data migration but not valid Clarity codes; walk
+    # past them to the parent issue.
+    LEGACY_PROJECT_CODE_PATTERN = /\A[A-Z]\d{2}-/
+
     def self.resolve(input, jira: nil, github: nil, cache: nil, config: nil, aliases: nil, refresh: false)
       loaded_config = config || Claire::Config.load
       jira ||= Claire::Jira.new(loaded_config)
@@ -129,7 +135,7 @@ module Claire
         fields = issue["fields"]
         project_code = fields["customfield_10762"]
 
-        if project_code && !project_code.empty?
+        if project_code && !project_code.empty? && !project_code.match?(LEGACY_PROJECT_CODE_PATTERN)
           return Resolution.new(
             pr_url: pr_url,
             jira_ticket: ticket_key,
