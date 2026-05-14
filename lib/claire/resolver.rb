@@ -83,7 +83,8 @@ module Claire
 
     def extract_ticket_from_jira_url(url)
       match = url.match(/\/browse\/([A-Za-z]+-\d+)/)
-      match[1] if match
+      raise ArgumentError, "JIRA URL does not contain a ticket: #{url}" unless match
+      match[1]
     end
   end
 end

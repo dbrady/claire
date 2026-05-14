@@ -7,7 +7,9 @@ require "base64"
 
 module Claire
   class Jira
-    class AuthenticationError < StandardError
+    class Error < StandardError; end
+
+    class AuthenticationError < Error
       attr_reader :status, :body
 
       def initialize(status, body)
@@ -17,7 +19,7 @@ module Claire
       end
     end
 
-    class NotFoundError < StandardError
+    class NotFoundError < Error
       attr_reader :key
 
       def initialize(key)
@@ -26,7 +28,7 @@ module Claire
       end
     end
 
-    class RequestError < StandardError
+    class RequestError < Error
       attr_reader :status, :body
 
       def initialize(status, body)
@@ -59,6 +61,8 @@ module Claire
         JSON.parse(response.body)
       elsif response.code == "404"
         raise NotFoundError.new(key)
+      elsif response.code == "401" || response.code == "403"
+        raise AuthenticationError.new(response.code, response.body)
       else
         raise RequestError.new(response.code, response.body)
       end
