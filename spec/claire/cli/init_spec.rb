@@ -36,6 +36,36 @@ RSpec.describe Claire::CLI::Init do
     end
   end
 
+  describe "#seed_approvals_file!" do
+    it "writes the starter approvals.yml with the PREXAMPLE entry" do
+      dir = Dir.mktmpdir
+      init = described_class.new
+
+      init.send(:seed_approvals_file!, data_dir: dir)
+
+      path = File.join(dir, "approvals.yml")
+      expect(File.exist?(path)).to be(true)
+      content = File.read(path)
+      expect(content).to include("PREXAMPLE")
+      expect(content).to include("claire approve")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "does not overwrite an existing approvals.yml" do
+      dir = Dir.mktmpdir
+      path = File.join(dir, "approvals.yml")
+      File.write(path, "PR00673: \"2026-05-14T08:32:50-06:00\"\n")
+      init = described_class.new
+
+      init.send(:seed_approvals_file!, data_dir: dir)
+
+      expect(File.read(path)).to eq("PR00673: \"2026-05-14T08:32:50-06:00\"\n")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+  end
+
   describe "#seed_aliases_file!" do
     it "writes the starter aliases.yml with an example entry" do
       dir = Dir.mktmpdir
@@ -145,6 +175,43 @@ RSpec.describe Claire::CLI::Init do
         allow(Claire::Config).to receive(:default_data_dir).with(config: nil).and_return(data_dir)
 
         expect { init.run }.not_to raise_error
+      ensure
+        FileUtils.remove_entry(dir)
+      end
+
+      it "seeds approvals.yml in the data dir" do
+        dir = Dir.mktmpdir("claire-legacy-spec")
+        config_dir = File.join(dir, ".config", "claire")
+        data_dir = File.join(dir, ".local", "share", "claire")
+        FileUtils.mkdir_p(config_dir)
+
+        config_path = File.join(config_dir, "config.yml")
+        File.write(config_path, <<~YAML)
+          ---
+          atlassian:
+            site_name: acme
+            email: alice@acme.com
+            api_token: secret
+          user:
+            email: alice@acme.com
+        YAML
+
+        fake_jira = class_double(Claire::Jira)
+        fake_jira_instance = instance_double(Claire::Jira, ping_myself: "Alice")
+        allow(fake_jira).to receive(:new).and_return(fake_jira_instance)
+
+        init = described_class.new(
+          config_path: config_path,
+          jira_class: fake_jira,
+        )
+
+        allow(Claire::Config).to receive(:default_data_dir).with(config: nil).and_return(data_dir)
+
+        init.run
+
+        approvals_path = File.join(data_dir, "approvals.yml")
+        expect(File.exist?(approvals_path)).to be(true)
+        expect(File.read(approvals_path)).to include("PREXAMPLE")
       ensure
         FileUtils.remove_entry(dir)
       end

@@ -6,7 +6,7 @@ $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "optimist"
 require "claire"
 
-SUBCOMMANDS = %w[init check log report edit alias].freeze
+SUBCOMMANDS = %w[init check log report edit alias approve].freeze
 
 global_opts = Optimist.options do
   banner <<~BANNER
@@ -22,6 +22,7 @@ global_opts = Optimist.options do
       report  Show weekly hours by project code
       edit    Open the time log in $EDITOR
       alias   Manage project-code aliases (add/list/rm)
+      approve Manage manual Clarity approval records (add/list/rm)
 
     Options:
   BANNER
@@ -113,6 +114,9 @@ when "edit"
 when "alias"
   require "claire/cli/alias"
   Claire::CLI::Alias.new.run(ARGV)
+when "approve"
+  require "claire/cli/approve"
+  Claire::CLI::Approve.new.run(ARGV)
 when nil
   Optimist.educate
 else

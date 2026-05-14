@@ -21,6 +21,13 @@ module Claire
         PREXAMPLE: Example project name
       YAML
 
+      STARTER_APPROVALS = <<~YAML
+        # Each entry records that you've manually verified Clarity approval
+        # for a project code. Use `claire approve <code>` to add entries.
+        # Stored as ISO-8601 timestamps; claire check displays the date.
+        PREXAMPLE: "2026-01-01T00:00:00+00:00"
+      YAML
+
       def initialize(config_path: Claire::Config.default_config_path,
                      mcp_path: Claire::Config.default_mcp_path,
                      jira_class: Claire::Jira)
@@ -59,6 +66,7 @@ module Claire
 
           seed_aliases_file!(data_dir: data_dir)
           seed_project_names_file!(data_dir: data_dir)
+          seed_approvals_file!(data_dir: data_dir)
 
           config = Claire::Config.load(path: @config_path)
           display_name = @jira_class.new(config).ping_myself
@@ -90,6 +98,7 @@ module Claire
 
         seed_aliases_file!(data_dir: data_dir)
         seed_project_names_file!(data_dir: data_dir)
+        seed_approvals_file!(data_dir: data_dir)
 
         config = Claire::Config.load(path: @config_path)
         display_name = @jira_class.new(config).ping_myself
@@ -114,6 +123,14 @@ module Claire
         return if File.exist?(path)
         FileUtils.mkdir_p(File.dirname(path))
         File.write(path, STARTER_PROJECT_NAMES)
+        puts "Wrote #{path}"
+      end
+
+      def seed_approvals_file!(data_dir:)
+        path = File.join(data_dir, "approvals.yml")
+        return if File.exist?(path)
+        FileUtils.mkdir_p(File.dirname(path))
+        File.write(path, STARTER_APPROVALS)
         puts "Wrote #{path}"
       end
 

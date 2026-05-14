@@ -1,11 +1,13 @@
 # frozen_string_literal: true
 
+require "time"
 require "claire/config"
 require "claire/jira"
 require "claire/github"
 require "claire/resolver"
 require "claire/clipboard"
 require "claire/project_names"
+require "claire/approvals"
 
 module Claire
   module CLI
@@ -13,10 +15,13 @@ module Claire
       CLARITY_URL = "https://cppm10270.clarityppm.saas.broadcom.com/pm/#/projects/common"
 
       def initialize(resolver: Claire::Resolver, clipboard: Claire::Clipboard,
-                     project_names: Claire::ProjectNames)
+                     project_names: Claire::ProjectNames, approvals: nil)
         @resolver = resolver
         @clipboard = clipboard
         @project_names = project_names
+        @approvals = approvals || Claire::Approvals.new(
+          path: Claire::Config.default_approvals_path(config: nil),
+        )
       end
 
       def run(input, refresh: false)
@@ -51,12 +56,18 @@ module Claire
         puts format_walk(input, resolution)
         puts "PR URL: #{resolution.pr_url}" if resolution.pr_url
         puts "Clarity: #{CLARITY_URL}"
-        puts "  !!  manual mode: confirm you're approved for #{resolution.project_code} before logging time."
-        copied = @clipboard.copy(resolution.project_code)
-        if copied
-          shortcut = @clipboard.paste_shortcut
-          puts "           I have put #{resolution.project_code} in the clipboard. Open the URL, hit TAB and"
-          puts "           then #{shortcut} to paste into the search field."
+        approval = @approvals.lookup(resolution.project_code)
+        if approval
+          date = Time.iso8601(approval).strftime("%Y-%m-%d")
+          puts "        [OK] You manually recorded #{resolution.project_code} as approved on #{date}."
+        else
+          puts "  !!  manual mode: confirm you're approved for #{resolution.project_code} before logging time."
+          copied = @clipboard.copy(resolution.project_code)
+          if copied
+            shortcut = @clipboard.paste_shortcut
+            puts "           I have put #{resolution.project_code} in the clipboard. Open the URL, hit TAB and"
+            puts "           then #{shortcut} to paste into the search field."
+          end
         end
       end
 
