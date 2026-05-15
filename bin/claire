@@ -40,9 +40,38 @@ subcommand = ARGV.shift
 
 case subcommand
 when "init"
+  Optimist.options do
+    banner <<~BANNER
+      Usage: claire init
+
+      Bootstrap or heal claire's local state. Idempotent — safe to run anytime.
+
+      On a fresh machine: reads ~/.claude/.mcp.json for Atlassian credentials,
+      writes ~/.config/claire/config.yml, creates the data dir, seeds starter
+      files for aliases/project_names/approvals, and confirms JIRA auth.
+
+      On a configured machine: re-validates the existing config, strips any
+      stale phantom keys, seeds missing starter files, and confirms JIRA auth.
+      Does not re-fetch from MCP — local config stays canonical.
+
+      See also: claire doctor (same behavior, different verb).
+    BANNER
+  end
   require "claire/cli/init"
   Claire::CLI::Init.new.run
 when "doctor"
+  Optimist.options do
+    banner <<~BANNER
+      Usage: claire doctor
+
+      Check and heal claire's local state. Idempotent — safe to run anytime.
+
+      Equivalent to `claire init`: both verbs run the same heal sequence.
+      Use whichever matches your mental model. `doctor` is the verb for
+      routine maintenance ("is everything OK?"); `init` is the verb for
+      first-time setup ("get me running").
+    BANNER
+  end
   require "claire/cli/doctor"
   Claire::CLI::Doctor.new.run
 when "check"
@@ -155,9 +184,48 @@ when "edit"
   Optimist.options # no flags; consume any stray args cleanly
   Claire::CLI::Edit.new.run
 when "alias"
+  Optimist.options do
+    banner <<~BANNER
+      Usage: claire alias <add|list|rm> [args...]
+
+      Manage project-code aliases — short mnemonics that resolve to project
+      codes. Case-insensitive: `claire alias add OOO PR00425` and
+      `claire log ooo 4` both refer to PR00425.
+
+      Subcommands:
+        add <name> <code>   Add or overwrite an alias.
+        list                List all aliases.
+        rm <name>           Remove an alias.
+
+      Examples:
+        claire alias add BF PR00673
+        claire alias list
+        claire alias rm BF
+    BANNER
+    stop_on %w[add list rm]
+  end
   require "claire/cli/alias"
   Claire::CLI::Alias.new.run(ARGV)
 when "approve"
+  Optimist.options do
+    banner <<~BANNER
+      Usage: claire approve <add|list|rm> [args...]
+
+      Manage manual Clarity approval records. Tracks which project codes you
+      have personally verified as approved, with ISO-8601 timestamps.
+
+      Subcommands:
+        add <code>          Record approval for a project code (timestamps now).
+        list                List all approval records.
+        rm <code>           Remove an approval record.
+
+      Examples:
+        claire approve add PR00673
+        claire approve list
+        claire approve rm PR00673
+    BANNER
+    stop_on %w[add list rm]
+  end
   require "claire/cli/approve"
   Claire::CLI::Approve.new.run(ARGV)
 when nil
