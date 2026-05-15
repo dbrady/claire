@@ -30,9 +30,6 @@ module Claire
           "email" => email,
           "api_token" => api_token,
         },
-        "user" => {
-          "email" => email,
-        },
       }
       data["data_dir"] = data_dir if data_dir
       File.write(path, YAML.dump(data))
