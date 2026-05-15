@@ -65,16 +65,43 @@ module Claire
       return cached if cached
 
       resolution = live_resolve(input)
-      @cache.put(
-        pr_url: resolution.pr_url,
-        jira_ticket: resolution.jira_ticket,
-        project_code: resolution.project_code,
-        walked_chain: resolution.walked_chain,
-      )
+      cache_per_step(resolution)
       resolution
     end
 
     private
+
+    # Writes one cache entry per ticket walked plus one entry under the
+    # project code. Each entry's walked_chain is the *suffix* from that
+    # ticket onward, so a sibling walk that arrives at an intermediate
+    # ticket gets a one-hop cache hit instead of replaying the whole walk.
+    #
+    # Per-key shapes:
+    #   originating jira ticket  — own ticket; pr_url if input was a PR
+    #   intermediate jira ticket — own ticket; nil pr_url
+    #   project code             — only project code; nil ticket and pr_url
+    def cache_per_step(resolution)
+      project_code = resolution.project_code
+      full_chain = resolution.walked_chain
+
+      full_chain.each_with_index do |ticket, i|
+        @cache.put(
+          key: ticket,
+          pr_url: i.zero? ? resolution.pr_url : nil,
+          jira_ticket: ticket,
+          project_code: project_code,
+          walked_chain: full_chain[(i + 1)..],
+        )
+      end
+
+      @cache.put(
+        key: project_code,
+        pr_url: nil,
+        jira_ticket: nil,
+        project_code: project_code,
+        walked_chain: [],
+      )
+    end
 
     # Returns a cached Resolution on a cache hit (when not refreshing), or nil
     # when the caller should live-resolve instead.
