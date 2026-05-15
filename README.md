@@ -158,7 +158,7 @@ ceremony. It's a personal log on your laptop.
 
 ### `<duration>` formats
 
-- `15` → 15 minutes (bare integer = minutes)
+- `15` → 15 hours (bare integer = hours)
 - `1:30` → 1 hour 30 minutes
 - `1.5` → 1.5 hours (90 minutes)
 - `90m` → 90 minutes (explicit minutes suffix)
