@@ -397,7 +397,7 @@ RSpec.describe Claire::Resolver do
         expect(resolution.walked_chain).to eq([])
       end
 
-      it "resolves via Jira and writes to cache on a cache miss" do
+      it "resolves via Jira and writes per-step cache entries on a cache miss" do
         jira = instance_double(Claire::Jira)
         github = instance_double(Claire::Github)
         cache = instance_double(Claire::Cache)
@@ -411,15 +411,26 @@ RSpec.describe Claire::Resolver do
         resolution = Claire::Resolver.resolve("MP-445", jira: jira, github: github, cache: cache)
 
         expect(resolution.project_code).to eq("PR00151")
+        # One entry under the originating ticket (single-step walk: no
+        # remaining chain to record) and one under the project code with
+        # the stripped shape.
         expect(cache).to have_received(:put).with(
+          key: "MP-445",
           pr_url: nil,
           jira_ticket: "MP-445",
           project_code: "PR00151",
-          walked_chain: ["MP-445"],
+          walked_chain: [],
+        )
+        expect(cache).to have_received(:put).with(
+          key: "PR00151",
+          pr_url: nil,
+          jira_ticket: nil,
+          project_code: "PR00151",
+          walked_chain: [],
         )
       end
 
-      it "skips cache and re-resolves when refresh: true, then rewrites all keys" do
+      it "skips cache and re-resolves when refresh: true, then rewrites per-step entries" do
         jira = instance_double(Claire::Jira)
         github = instance_double(Claire::Github)
         cache = instance_double(Claire::Cache)
@@ -428,7 +439,7 @@ RSpec.describe Claire::Resolver do
           "pr_url" => nil,
           "jira_ticket" => "MP-445",
           "project_code" => "PR00151",
-          "walked_chain" => ["MP-445"],
+          "walked_chain" => [],
         }
         allow(cache).to receive(:get).with("MP-445").and_return(existing_entry)
         allow(jira).to receive(:fetch_issue).with("MP-445", fields: ["customfield_10762", "parent"]).and_return(
@@ -447,10 +458,11 @@ RSpec.describe Claire::Resolver do
           project_code: "PR00151",
         )
         expect(cache).to have_received(:put).with(
+          key: "MP-445",
           pr_url: nil,
           jira_ticket: "MP-445",
           project_code: "PR00151",
-          walked_chain: ["MP-445"],
+          walked_chain: [],
         )
       end
 
@@ -549,6 +561,149 @@ RSpec.describe Claire::Resolver do
         expect(resolution.project_code).to eq("PR00151")
         expect(cache).not_to have_received(:get)
         expect(cache).not_to have_received(:put)
+      end
+    end
+
+    context "per-step chain caching (#27)" do
+      # The chain MP-100 -> MP-200 -> MP-300, where MP-300 carries project
+      # code PR00999. The "left-to-right" walk is what the resolver does
+      # internally; the cached "walked_chain" for each entry is the
+      # *remaining* chain from that ticket onward.
+      def stub_chain_walk(jira)
+        allow(jira).to receive(:fetch_issue).with("MP-100", fields: ["customfield_10762", "parent"]).and_return(
+          { "key" => "MP-100", "fields" => { "customfield_10762" => "", "parent" => { "key" => "MP-200" } } },
+        )
+        allow(jira).to receive(:fetch_issue).with("MP-200", fields: ["customfield_10762", "parent"]).and_return(
+          { "key" => "MP-200", "fields" => { "customfield_10762" => "", "parent" => { "key" => "MP-300" } } },
+        )
+        allow(jira).to receive(:fetch_issue).with("MP-300", fields: ["customfield_10762", "parent"]).and_return(
+          { "key" => "MP-300", "fields" => { "customfield_10762" => "PR00999", "parent" => nil } },
+        )
+      end
+
+      it "writes one cache entry per ticket in the walk plus one for the project code" do
+        jira = instance_double(Claire::Jira)
+        stub_chain_walk(jira)
+        cache = instance_double(Claire::Cache)
+        allow(cache).to receive(:get).and_return(nil)
+        allow(cache).to receive(:put)
+
+        Claire::Resolver.resolve("MP-100", jira: jira, cache: cache)
+
+        # MP-100 — the originating ticket. No pr_url (input was a JIRA ticket,
+        # not a PR). walked_chain is the rest: MP-200, MP-300.
+        expect(cache).to have_received(:put).with(
+          key: "MP-100",
+          pr_url: nil,
+          jira_ticket: "MP-100",
+          project_code: "PR00999",
+          walked_chain: ["MP-200", "MP-300"],
+        )
+
+        # MP-200 — an intermediate. No pr_url. walked_chain is what remains.
+        expect(cache).to have_received(:put).with(
+          key: "MP-200",
+          pr_url: nil,
+          jira_ticket: "MP-200",
+          project_code: "PR00999",
+          walked_chain: ["MP-300"],
+        )
+
+        # MP-300 — the ticket that actually carries the project code.
+        # walked_chain is empty because no further walk was needed.
+        expect(cache).to have_received(:put).with(
+          key: "MP-300",
+          pr_url: nil,
+          jira_ticket: "MP-300",
+          project_code: "PR00999",
+          walked_chain: [],
+        )
+
+        # PR00999 — the project code itself. A project-code key carries no
+        # jira_ticket and no pr_url: many tickets resolve to the same code,
+        # so picking one would be structurally wrong.
+        expect(cache).to have_received(:put).with(
+          key: "PR00999",
+          pr_url: nil,
+          jira_ticket: nil,
+          project_code: "PR00999",
+          walked_chain: [],
+        )
+      end
+
+      it "stores pr_url only on the originating entry (not on intermediates or the project code)" do
+        jira = instance_double(Claire::Jira)
+        stub_chain_walk(jira)
+        github = instance_double(Claire::Github)
+        allow(github).to receive(:fetch).with("17347").and_return(
+          { jira_ticket: "MP-100", pr_url: "https://github.com/acme/repo/pull/17347" },
+        )
+        cache = instance_double(Claire::Cache)
+        allow(cache).to receive(:get).and_return(nil)
+        allow(cache).to receive(:put)
+
+        Claire::Resolver.resolve("17347", jira: jira, github: github, cache: cache)
+
+        # Only MP-100 (the originating ticket from the PR) carries the pr_url.
+        expect(cache).to have_received(:put).with(
+          hash_including(key: "MP-100", pr_url: "https://github.com/acme/repo/pull/17347"),
+        )
+
+        # Intermediates have nil pr_url.
+        expect(cache).to have_received(:put).with(hash_including(key: "MP-200", pr_url: nil))
+        expect(cache).to have_received(:put).with(hash_including(key: "MP-300", pr_url: nil))
+
+        # The project code key also has nil pr_url.
+        expect(cache).to have_received(:put).with(hash_including(key: "PR00999", pr_url: nil))
+      end
+
+      it "lets a sibling resolution hit an intermediate cached ticket without calling Jira" do
+        jira = instance_double(Claire::Jira)
+        allow(jira).to receive(:fetch_issue)
+        cache = instance_double(Claire::Cache)
+        # MP-200 was cached earlier as an intermediate from a previous walk.
+        allow(cache).to receive(:get).with("MP-200").and_return(
+          {
+            "pr_url" => nil,
+            "jira_ticket" => "MP-200",
+            "project_code" => "PR00999",
+            "walked_chain" => ["MP-300"],
+          },
+        )
+
+        resolution = Claire::Resolver.resolve("MP-200", jira: jira, cache: cache)
+
+        expect(resolution.project_code).to eq("PR00999")
+        expect(resolution.jira_ticket).to eq("MP-200")
+        expect(resolution.walked_chain).to eq(["MP-300"])
+        expect(jira).not_to have_received(:fetch_issue)
+      end
+
+      it "still cascade-deletes the whole family on refresh when any member is refreshed" do
+        # delete_by_resolution already cascades by project_code (cache.rb), so
+        # the new per-step entries — all sharing the same project_code — are
+        # all caught by a single delete. This test pins that behaviour so a
+        # future change to per-step caching cannot silently lose it.
+        jira = instance_double(Claire::Jira)
+        stub_chain_walk(jira)
+        cache = instance_double(Claire::Cache)
+        existing_entry = {
+          "pr_url" => nil,
+          "jira_ticket" => "MP-100",
+          "project_code" => "PR00999",
+          "walked_chain" => ["MP-200", "MP-300"],
+        }
+        allow(cache).to receive(:get).with("MP-100").and_return(existing_entry)
+        allow(cache).to receive(:delete_by_resolution)
+        allow(cache).to receive(:put)
+
+        Claire::Resolver.resolve("MP-100", jira: jira, cache: cache, refresh: true)
+
+        expect(cache).to have_received(:delete_by_resolution).with(
+          pr_url: nil,
+          jira_ticket: "MP-100",
+          project_code: "PR00999",
+        )
       end
     end
   end
