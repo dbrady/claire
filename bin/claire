@@ -55,6 +55,45 @@ when "check"
 when "log"
   require "claire/cli/log"
   subopts = Optimist.options do
+    banner <<~BANNER
+      Usage: claire log <target> <duration> [--on <date>] [--note <text>]
+
+      Log time worked against a Clarity project. The target can be anything
+      claire knows how to resolve to a project code; the duration uses a small
+      grammar; --on accepts several friendly date forms.
+
+      Targets:
+        17347                                              PR number
+        https://github.com/acima-credit/merchant_portal/pull/17347
+                                                           PR URL
+        MP-830                                             JIRA ticket
+        https://upbd.atlassian.net/browse/MP-830           JIRA URL
+        PR00673                                            project code (direct)
+
+      Durations (bare numbers are hours; only the 'm' suffix opts in to minutes):
+        2        2 hours
+        2.0      2 hours
+        2h       2 hours
+        120m     2 hours
+        1:30     1 hour 30 minutes
+        45m      45 minutes
+        (so 2 = 2h = 120m = 2.0 — all equivalent)
+
+      Dates for --on (default: today):
+        --on today
+        --on yesterday
+        --on wed                 most recent Wednesday (today counts)
+        --on 5/13                M/D in the current year
+        --on 2026-05-13          ISO date
+
+      Examples:
+        claire log 17347 2h
+        claire log MP-830 1.5 --on yesterday --note "code review"
+        claire log PR00673 90m --on 5/13
+        claire log https://github.com/acima-credit/merchant_portal/pull/17347 2 --on wed
+
+      Options:
+    BANNER
     opt :on,      "Date worked on (YYYY-MM-DD, today, yesterday, weekday, M/D)", type: :string, short: "-O"
     opt :note,    "Free-text note", type: :string, short: "-m"
     opt :refresh, "Bypass resolver cache", short: "-r", default: false
