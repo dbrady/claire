@@ -144,6 +144,7 @@ when "report"
     opt :week,  "Sun-Sat week containing this date (YYYY-MM-DD)", type: :string, short: :none
     opt :start, "Range start date (YYYY-MM-DD)", type: :string, short: "-s"
     opt :end,   "Range end date (YYYY-MM-DD)", type: :string, short: "-e"
+    opt :names, "Include project names in row labels (default: bare codes)", short: "-n", default: false
   end
   positional = ARGV.shift
 
@@ -161,17 +162,19 @@ when "report"
   present << :end   if subopts[:end]
 
   cli = Claire::CLI::Report.new
+  names = subopts[:names]
   case present
   when []
-    cli.run(mode: :this_week)
+    cli.run(mode: :this_week, names: names)
   when [:last]
-    cli.run(mode: :last_week)
+    cli.run(mode: :last_week, names: names)
   when [:week]
-    cli.run(mode: :specific_week, week: parse_iso(subopts[:week]))
+    cli.run(mode: :specific_week, week: parse_iso(subopts[:week]), names: names)
   when [:start, :end]
     cli.run(mode: :range,
             start_date: parse_iso(subopts[:start]),
-            end_date:   parse_iso(subopts[:end]))
+            end_date:   parse_iso(subopts[:end]),
+            names: names)
   when [:start]
     warn "claire report: --start requires --end"; exit 1
   when [:end]
