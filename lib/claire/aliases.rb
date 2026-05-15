@@ -22,15 +22,16 @@ module Claire
     def add(name, value)
       validate_name!(name)
       validate_value!(value)
+      key = canonical(name)
       data = load_all
-      previous = data[name]
-      data[name] = value
+      previous = data[key]
+      data[key] = value
       write_all(data)
       previous
     end
 
     def lookup(name)
-      load_all[name.to_s]
+      load_all[canonical(name)]
     end
 
     def list
@@ -38,13 +39,22 @@ module Claire
     end
 
     def rm(name)
+      key = canonical(name)
       data = load_all
-      raise NotFoundError, "no alias named #{name}" unless data.key?(name)
-      data.delete(name)
+      raise NotFoundError, "no alias named #{name}" unless data.key?(key)
+      data.delete(key)
       write_all(data)
     end
 
     private
+
+    # Aliases are mnemonics, not identifiers — case is not load-bearing.
+    # Uppercase is the canonical form: it matches the convention that project
+    # codes are uppercase, and normalising here means the on-disk hash uses
+    # one key per logical alias regardless of how the user typed it.
+    def canonical(name)
+      name.to_s.upcase
+    end
 
     def validate_name!(name)
       unless name.is_a?(String) && name.match?(NAME_PATTERN)
@@ -70,7 +80,12 @@ module Claire
 
     def load_all
       return {} unless File.exist?(@path)
-      YAML.safe_load_file(@path) || {}
+      raw = YAML.safe_load_file(@path) || {}
+      # Migrate legacy mixed-case keys transparently. Pre-fix aliases.yml
+      # files may have keys like "Ooo"; normalising on read means lookups
+      # work immediately, and the file gets rewritten in canonical form on
+      # the next add/rm.
+      raw.each_with_object({}) { |(k, v), out| out[canonical(k)] = v }
     end
 
     def write_all(data)
