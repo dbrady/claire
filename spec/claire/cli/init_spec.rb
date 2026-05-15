@@ -217,8 +217,13 @@ RSpec.describe Claire::CLI::Init do
       end
     end
 
-    context "modern install: config.yml AND data_dir both exist" do
-      it "refuses with exit 1" do
+    context "modern install: config.yml AND data_dir both exist (idempotent heal — #38)" do
+      it "does not refuse — re-validates and exits 0" do
+        # Previously this path raised exit 1 ('config already exists'). The
+        # idempotency contract from #38 says re-running init on a configured
+        # machine is a healing no-op: re-validate credentials, leave a healthy
+        # config alone, exit cleanly. Refusal was a footgun that left no
+        # in-band way to repair drift.
         dir = Dir.mktmpdir("claire-modern-spec")
         config_dir = File.join(dir, ".config", "claire")
         data_dir = File.join(dir, ".local", "share", "claire")
@@ -226,13 +231,94 @@ RSpec.describe Claire::CLI::Init do
         FileUtils.mkdir_p(data_dir)
 
         config_path = File.join(config_dir, "config.yml")
-        File.write(config_path, "existing config\n")
+        Claire::Config.write!(
+          path: config_path,
+          site_name: "example",
+          email: "alice@example.com",
+          api_token: "tok",
+          data_dir: data_dir,
+        )
 
-        init = described_class.new(config_path: config_path)
-
+        jira_class = class_double(Claire::Jira)
+        jira_instance = instance_double(Claire::Jira)
+        allow(jira_class).to receive(:new).and_return(jira_instance)
+        allow(jira_instance).to receive(:ping_myself).and_return("Alice")
         allow(Claire::Config).to receive(:default_data_dir).with(config: nil).and_return(data_dir)
 
-        expect { init.run }.to raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
+        init = described_class.new(config_path: config_path, jira_class: jira_class)
+
+        expect { init.run }.not_to raise_error
+      ensure
+        FileUtils.remove_entry(dir)
+      end
+
+      it "strips a phantom user: section from an existing config.yml on heal" do
+        # The phantom user.email field from pre-#35 versions of Config.write!
+        # never had a reader. Doctor/idempotent-init should actively remove it
+        # on the next run so old files self-heal without a manual edit.
+        dir = Dir.mktmpdir("claire-phantom-user-spec")
+        config_dir = File.join(dir, ".config", "claire")
+        data_dir = File.join(dir, ".local", "share", "claire")
+        FileUtils.mkdir_p(config_dir)
+        FileUtils.mkdir_p(data_dir)
+
+        config_path = File.join(config_dir, "config.yml")
+        # Hand-write a config with the phantom section, simulating a pre-#35 file.
+        File.write(config_path, YAML.dump(
+          "atlassian" => {
+            "site_name" => "example",
+            "email" => "alice@example.com",
+            "api_token" => "tok",
+          },
+          "user" => { "email" => "alice@example.com" },
+          "data_dir" => data_dir,
+        ))
+
+        jira_class = class_double(Claire::Jira)
+        jira_instance = instance_double(Claire::Jira)
+        allow(jira_class).to receive(:new).and_return(jira_instance)
+        allow(jira_instance).to receive(:ping_myself).and_return("Alice")
+        allow(Claire::Config).to receive(:default_data_dir).with(config: nil).and_return(data_dir)
+
+        init = described_class.new(config_path: config_path, jira_class: jira_class)
+        init.run
+
+        data = YAML.load_file(config_path)
+        expect(data.key?("user")).to be(false)
+        expect(data.dig("atlassian", "email")).to eq("alice@example.com")
+      ensure
+        FileUtils.remove_entry(dir)
+      end
+
+      it "is byte-for-byte idempotent: running twice produces the same final config" do
+        dir = Dir.mktmpdir("claire-idempotent-spec")
+        config_dir = File.join(dir, ".config", "claire")
+        data_dir = File.join(dir, ".local", "share", "claire")
+        FileUtils.mkdir_p(config_dir)
+        FileUtils.mkdir_p(data_dir)
+
+        config_path = File.join(config_dir, "config.yml")
+        Claire::Config.write!(
+          path: config_path,
+          site_name: "example",
+          email: "alice@example.com",
+          api_token: "tok",
+          data_dir: data_dir,
+        )
+
+        jira_class = class_double(Claire::Jira)
+        jira_instance = instance_double(Claire::Jira)
+        allow(jira_class).to receive(:new).and_return(jira_instance)
+        allow(jira_instance).to receive(:ping_myself).and_return("Alice")
+        allow(Claire::Config).to receive(:default_data_dir).with(config: nil).and_return(data_dir)
+
+        init = described_class.new(config_path: config_path, jira_class: jira_class)
+        init.run
+        first_pass = File.read(config_path)
+        init.run
+        second_pass = File.read(config_path)
+
+        expect(second_pass).to eq(first_pass)
       ensure
         FileUtils.remove_entry(dir)
       end
