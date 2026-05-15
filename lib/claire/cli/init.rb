@@ -74,11 +74,29 @@ module Claire
           return
         end
 
-        # Modern re-init guard: config.yml AND the data dir both exist already.
+        # Idempotent heal path (#38): config.yml AND data_dir both exist.
+        # Re-load credentials from the local config (do NOT re-fetch from MCP —
+        # that would clobber a healthy config if the MCP file has drifted).
+        # Strip any phantom keys (e.g. legacy user.email from pre-#35), seed
+        # any missing starter files, then ping JIRA to confirm auth.
         if File.exist?(@config_path)
-          warn "claire: config already exists at #{@config_path}"
-          warn "Remove it manually if you want to re-initialize."
-          exit 1
+          existing = Claire::Config.load(path: @config_path)
+          Claire::Config.write!(
+            path: @config_path,
+            data_dir: data_dir,
+            site_name: existing.site_name,
+            email: existing.email,
+            api_token: existing.api_token,
+          )
+
+          seed_aliases_file!(data_dir: data_dir)
+          seed_project_names_file!(data_dir: data_dir)
+          seed_approvals_file!(data_dir: data_dir)
+
+          config = Claire::Config.load(path: @config_path)
+          display_name = @jira_class.new(config).ping_myself
+          puts "Authenticated as: #{display_name}"
+          return
         end
 
         # Fresh init path: nothing exists yet.

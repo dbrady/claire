@@ -6,7 +6,7 @@ $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "optimist"
 require "claire"
 
-SUBCOMMANDS = %w[init check log report edit alias approve].freeze
+SUBCOMMANDS = %w[init doctor check log report edit alias approve].freeze
 
 global_opts = Optimist.options do
   banner <<~BANNER
@@ -16,7 +16,8 @@ global_opts = Optimist.options do
       claire <subcommand> [options]
 
     Subcommands:
-      init    Bootstrap config from ~/.claude/.mcp.json
+      init    Bootstrap or heal config from ~/.claude/.mcp.json (idempotent)
+      doctor  Check and heal local state (alias of init; run anytime)
       check   Resolve a ticket/PR/code and print the project code
       log     Resolve and record a billable time entry
       report  Show weekly hours by project code
@@ -41,6 +42,9 @@ case subcommand
 when "init"
   require "claire/cli/init"
   Claire::CLI::Init.new.run
+when "doctor"
+  require "claire/cli/doctor"
+  Claire::CLI::Doctor.new.run
 when "check"
   require "claire/cli/check"
   subopts = Optimist.options do
