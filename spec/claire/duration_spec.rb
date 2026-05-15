@@ -9,19 +9,30 @@ RSpec.describe Claire::Duration do
       expect { Claire::Duration.parse("0") }.to raise_error(ArgumentError, /positive/)
     end
 
-    it "parses '15' as 15 minutes" do
+    it "treats bare integers, bare decimals, h-suffix, and m-suffix as equivalent forms of the same duration" do
+      # 2 hours expressed four different ways must all collapse to 120 minutes.
+      # The bare-integer case is the bug fix in #29: bare integers used to be
+      # interpreted as minutes, which made '2' silently mean 1/60th of what
+      # the user typed when they wrote 'claire log MP-830 2'.
+      expect(Claire::Duration.parse("2")).to eq(120)
+      expect(Claire::Duration.parse("2.0")).to eq(120)
+      expect(Claire::Duration.parse("2h")).to eq(120)
+      expect(Claire::Duration.parse("120m")).to eq(120)
+    end
+
+    it "parses '15' as 15 hours (900 minutes)" do
       result = Claire::Duration.parse("15")
-      expect(result).to eq(15)
+      expect(result).to eq(900)
     end
 
-    it "parses '60' as 60 minutes" do
+    it "parses '60' as 60 hours (3600 minutes)" do
       result = Claire::Duration.parse("60")
-      expect(result).to eq(60)
+      expect(result).to eq(3600)
     end
 
-    it "parses '90' as 90 minutes" do
+    it "parses '90' as 90 hours (5400 minutes)" do
       result = Claire::Duration.parse("90")
-      expect(result).to eq(90)
+      expect(result).to eq(5400)
     end
 
     it "parses '1:30' as 90 minutes" do
