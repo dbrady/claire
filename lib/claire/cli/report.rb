@@ -14,7 +14,7 @@ module Claire
         @project_names = project_names
       end
 
-      def run(mode: :this_week, week: nil, start_date: nil, end_date: nil)
+      def run(mode: :this_week, week: nil, start_date: nil, end_date: nil, names: false)
         grid = case mode
                when :this_week    then Claire::Report.weekly(week_containing: @today)
                when :last_week    then Claire::Report.weekly(week_containing: @today - 7)
@@ -28,7 +28,7 @@ module Claire
           return
         end
 
-        puts format_grid(grid)
+        puts format_grid(grid, names: names)
       rescue ArgumentError => e
         warn "claire report: #{e.message}"
         exit 1
@@ -36,13 +36,19 @@ module Claire
 
       private
 
-      def format_grid(grid)
+      def format_grid(grid, names:)
         day_headers = grid.days.map do |day|
           "#{DAY_NAMES[day.wday]} #{day.strftime("%m/%d")}"
         end
 
         all_headers = day_headers + ["TOTAL"]
-        row_labels = grid.rows.keys.sort.map { |code| @project_names.label(code) }
+        # Row labels: bare codes by default (#36). The user opts in to the
+        # enriched "CODE - Name" form with --names, which lights up the
+        # project-names YAML lookup. Skipping the lookup also avoids loading
+        # project_names.yml on the common path.
+        row_labels = grid.rows.keys.sort.map do |code|
+          names ? @project_names.label(code) : code
+        end
         label_width = [(row_labels + ["TOTAL"]).map(&:length).max, 7].max
         col_widths = all_headers.map { |header| [header.length, 6].max }
 
