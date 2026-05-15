@@ -23,7 +23,23 @@ RSpec.describe Claire::Config do
       expect(data.dig("atlassian", "site_name")).to eq("example")
       expect(data.dig("atlassian", "email")).to eq("user@example.com")
       expect(data.dig("atlassian", "api_token")).to eq("tok123")
-      expect(data.dig("user", "email")).to eq("user@example.com")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "does not write a phantom user section (the field had no reader; see #35)" do
+      dir = Dir.mktmpdir
+      config_path = File.join(dir, "config.yml")
+
+      Claire::Config.write!(
+        path: config_path,
+        site_name: "example",
+        email: "user@example.com",
+        api_token: "tok123",
+      )
+
+      data = YAML.load_file(config_path)
+      expect(data.key?("user")).to be(false)
     ensure
       FileUtils.remove_entry(dir)
     end
