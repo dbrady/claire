@@ -252,4 +252,77 @@ RSpec.describe Claire::Aliases do
       FileUtils.remove_entry(dir)
     end
   end
+
+  describe "case-insensitive aliases (#33)" do
+    # The bug: `claire alias add OOO PR00425; claire log ooo 4` would log
+    # against a phantom project_code "ooo" instead of PR00425. Aliases are
+    # mnemonics, not identifiers — case is not load-bearing. The chosen
+    # canonical form is uppercase, matching the convention that project
+    # codes themselves are uppercase.
+
+    it "lookup finds an alias added with a different case" do
+      dir = Dir.mktmpdir
+      store = make_aliases(dir)
+
+      store.add("OOO", "PR00425")
+
+      expect(store.lookup("ooo")).to eq("PR00425")
+      expect(store.lookup("Ooo")).to eq("PR00425")
+      expect(store.lookup("OOO")).to eq("PR00425")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "stores the alias name in canonical (uppercase) form regardless of input case" do
+      dir = Dir.mktmpdir
+      store = make_aliases(dir)
+
+      store.add("OoO", "PR00425")
+
+      expect(store.list).to eq("OOO" => "PR00425")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "rm removes the alias regardless of the case used to remove it" do
+      dir = Dir.mktmpdir
+      store = make_aliases(dir)
+
+      store.add("OOO", "PR00425")
+      store.rm("ooo")
+
+      expect(store.lookup("ooo")).to be_nil
+      expect(store.lookup("OOO")).to be_nil
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "treats add of a different-case existing name as an overwrite, not a new entry" do
+      dir = Dir.mktmpdir
+      store = make_aliases(dir)
+
+      store.add("OOO", "PR00425")
+      previous = store.add("ooo", "PR99999")
+
+      expect(previous).to eq("PR00425")
+      expect(store.list).to eq("OOO" => "PR99999")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it "transparently normalises pre-existing mixed-case keys on read" do
+      # Simulate a legacy aliases.yml from before this fix: a mixed-case key
+      # written directly to disk. Both upper- and lower-case lookups must
+      # find it without requiring an explicit migration step.
+      dir = Dir.mktmpdir
+      path = File.join(dir, "aliases.yml")
+      File.write(path, { "Ooo" => "PR00425" }.to_yaml)
+      store = described_class.new(path: path)
+
+      expect(store.lookup("ooo")).to eq("PR00425")
+      expect(store.lookup("OOO")).to eq("PR00425")
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+  end
 end
