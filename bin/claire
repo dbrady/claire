@@ -140,10 +140,12 @@ when "log"
   Claire::CLI::Log.new.run(target, duration, on: subopts[:on], note: subopts[:note], refresh: subopts[:refresh])
 when "report"
   require "claire/cli/report"
+  require "claire/dates"
   subopts = Optimist.options do
     opt :week,  "Sun-Sat week containing this date (YYYY-MM-DD)", type: :string, short: :none
     opt :start, "Range start date (YYYY-MM-DD)", type: :string, short: "-s"
     opt :end,   "Range end date (YYYY-MM-DD)", type: :string, short: "-e"
+    opt :date,  "Sun-Sat week containing this date expression ('last week', '2 weeks ago', YYYY-MM-DD, M/D, today)", type: :string, short: "-d"
     opt :names, "Include project names in row labels (default: bare codes)", short: "-n", default: false
   end
   positional = ARGV.shift
@@ -160,6 +162,7 @@ when "report"
   present << :week  if subopts[:week]
   present << :start if subopts[:start]
   present << :end   if subopts[:end]
+  present << :date  if subopts[:date]
 
   cli = Claire::CLI::Report.new
   names = subopts[:names]
@@ -170,6 +173,13 @@ when "report"
     cli.run(mode: :last_week, names: names)
   when [:week]
     cli.run(mode: :specific_week, week: parse_iso(subopts[:week]), names: names)
+  when [:date]
+    begin
+      sunday, saturday = Claire::Dates.expand_to_week(subopts[:date])
+    rescue ArgumentError => e
+      warn "claire report: #{e.message}"; exit 1
+    end
+    cli.run(mode: :range, start_date: sunday, end_date: saturday, names: names)
   when [:start, :end]
     cli.run(mode: :range,
             start_date: parse_iso(subopts[:start]),
@@ -180,7 +190,11 @@ when "report"
   when [:end]
     warn "claire report: --end requires --start"; exit 1
   else
-    warn "claire report: cannot mix `last`, --week, and --start/--end"; exit 1
+    if present.include?(:date)
+      warn "claire report: --date cannot be combined with --start/--end, --week, or 'last'"; exit 1
+    else
+      warn "claire report: cannot mix `last`, --week, and --start/--end"; exit 1
+    end
   end
 when "edit"
   require "claire/cli/edit"
