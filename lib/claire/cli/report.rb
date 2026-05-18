@@ -42,62 +42,76 @@ module Claire
         end
 
         all_headers = day_headers + ["TOTAL"]
-        # Row labels: bare codes by default (#36). The user opts in to the
-        # enriched "CODE - Name" form with --names, which lights up the
-        # project-names YAML lookup. Skipping the lookup also avoids loading
-        # project_names.yml on the common path.
-        row_labels = grid.rows.keys.sort.map do |code|
-          names ? @project_names.label(code) : code
-        end
-        label_width = [(row_labels + ["TOTAL"]).map(&:length).max, 7].max
+
+        # Stable sort across (project_code, epic_key) tuples. nil epic_keys
+        # bucket under empty string so they sort to the top of their project
+        # group instead of crashing the comparator.
+        sorted_rows = grid.rows.sort_by { |(code, epic), _| [code, epic.to_s] }
+
+        # Two label columns: Project | Epic. Each row's project label honors
+        # the --names flag exactly like the old single column did; the epic
+        # column is always the bare key (or "-" when nil).
+        project_labels = sorted_rows.map { |(code, _epic), _| names ? @project_names.label(code) : code }
+        epic_labels = sorted_rows.map { |(_code, epic), _| epic || "-" }
+
+        project_width = [(project_labels + ["Project"]).map(&:length).max, 7].max
+        epic_width = [(epic_labels + ["Epic"]).map(&:length).max, 6].max
         col_widths = all_headers.map { |header| [header.length, 6].max }
 
-        separator = build_separator(label_width, col_widths)
-        header_row = build_header_row(all_headers, label_width, col_widths)
+        separator = build_separator([project_width, epic_width], col_widths)
+        header_row = build_header_row(["Project", "Epic"], [project_width, epic_width], all_headers, col_widths)
 
         lines = []
         lines << separator
         lines << header_row
         lines << separator
 
-        grid.rows.sort.each_with_index do |(project_code, day_minutes), index|
-          row_label = row_labels[index]
+        sorted_rows.each_with_index do |((_code, _epic), day_minutes), index|
           row_total = day_minutes.sum
           cells = day_minutes.map { |minutes| Claire::Report.format_minutes(minutes) }
           cells << Claire::Report.format_minutes(row_total)
-          lines << build_data_row(row_label, cells, label_width, col_widths)
+          lines << build_data_row(
+            [project_labels[index], epic_labels[index]],
+            cells,
+            [project_width, epic_width],
+            col_widths,
+          )
         end
 
         lines << separator
 
         total_cells = grid.daily_totals.map { |minutes| Claire::Report.format_minutes(minutes) }
         total_cells << Claire::Report.format_minutes(grid.grand_total)
-        lines << build_data_row("TOTAL", total_cells, label_width, col_widths)
+        lines << build_data_row(["TOTAL", ""], total_cells, [project_width, epic_width], col_widths)
         lines << separator
 
         lines.join("\n")
       end
 
-      def build_separator(label_width, col_widths)
-        parts = ["-" * (label_width + 2)]
+      def build_separator(label_widths, col_widths)
+        parts = label_widths.map { |w| "-" * (w + 2) }
         col_widths.each { |width| parts << "-" * (width + 2) }
         "+#{parts.join("+")}+"
       end
 
-      def build_header_row(headers, label_width, col_widths)
-        label_cell = " " + "".ljust(label_width) + " "
+      def build_header_row(label_headers, label_widths, headers, col_widths)
+        label_cells = label_headers.each_with_index.map do |text, i|
+          " " + text.ljust(label_widths[i]) + " "
+        end
         day_cells = headers.each_with_index.map do |header, index|
           " " + header.center(col_widths[index]) + " "
         end
-        "|#{label_cell}|#{day_cells.join("|")}|"
+        "|#{label_cells.join("|")}|#{day_cells.join("|")}|"
       end
 
-      def build_data_row(label, cells, label_width, col_widths)
-        label_cell = " " + label.ljust(label_width) + " "
+      def build_data_row(labels, cells, label_widths, col_widths)
+        label_cells = labels.each_with_index.map do |text, i|
+          " " + text.to_s.ljust(label_widths[i]) + " "
+        end
         value_cells = cells.each_with_index.map do |value, index|
           " " + value.rjust(col_widths[index]) + " "
         end
-        "|#{label_cell}|#{value_cells.join("|")}|"
+        "|#{label_cells.join("|")}|#{value_cells.join("|")}|"
       end
     end
   end

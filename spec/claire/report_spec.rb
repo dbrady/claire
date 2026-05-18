@@ -8,6 +8,38 @@ require "claire/report"
 require "claire/config"
 
 RSpec.describe Claire::Report do
+  describe "epic-aware grouping (#49)" do
+    it "produces one row per (project_code, epic_key) tuple, even when they share a project code" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, [
+          { "project_code" => "PR00151", "epic_key" => "MP-445", "minutes" => 30, "worked_on" => "2026-05-11" }.to_json,
+          { "project_code" => "PR00151", "epic_key" => "MP-445", "minutes" => 60, "worked_on" => "2026-05-11" }.to_json,
+          { "project_code" => "PR00151", "epic_key" => "MP-777", "minutes" => 120, "worked_on" => "2026-05-12" }.to_json,
+        ].join("\n") + "\n")
+
+        grid = Claire::Report.weekly(entries_path: path, week_containing: Date.new(2026, 5, 13))
+
+        expect(grid.rows.keys).to contain_exactly(["PR00151", "MP-445"], ["PR00151", "MP-777"])
+        expect(grid.rows[["PR00151", "MP-445"]].sum).to eq(90)
+        expect(grid.rows[["PR00151", "MP-777"]].sum).to eq(120)
+      end
+    end
+
+    it "buckets entries without epic_key under a nil-epic row for the project code" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, [
+          { "project_code" => "PR00151", "minutes" => 30, "worked_on" => "2026-05-11" }.to_json,
+        ].join("\n") + "\n")
+
+        grid = Claire::Report.weekly(entries_path: path, week_containing: Date.new(2026, 5, 13))
+
+        expect(grid.rows.keys).to eq([["PR00151", nil]])
+      end
+    end
+  end
+
   describe ".weekly" do
     it "returns an empty grid when the log file does not exist" do
       Dir.mktmpdir do |dir|
@@ -65,8 +97,8 @@ RSpec.describe Claire::Report do
 
         grid = Claire::Report.weekly(entries_path: path, week_containing: Date.new(2026, 5, 14))
 
-        expect(grid.rows.keys).to eq(["PR00151"])
-        row = grid.rows["PR00151"]
+        expect(grid.rows.keys).to eq([["PR00151", nil]])
+        row = grid.rows[["PR00151", nil]]
         expect(row[0]).to eq(0)   # Sun
         expect(row[1]).to eq(0)   # Mon
         expect(row[2]).to eq(90)  # Tue
@@ -105,7 +137,7 @@ RSpec.describe Claire::Report do
         grid = Claire::Report.weekly(entries_path: path, week_containing: Date.new(2026, 5, 14))
 
         # Tuesday is index 2
-        expect(grid.rows["PR00151"][2]).to eq(75)
+        expect(grid.rows[["PR00151", nil]][2]).to eq(75)
         expect(grid.grand_total).to eq(75)
       end
     end
@@ -135,7 +167,7 @@ RSpec.describe Claire::Report do
 
         grid = Claire::Report.weekly(entries_path: path, week_containing: Date.new(2026, 5, 14))
 
-        row = grid.rows["PR00151"]
+        row = grid.rows[["PR00151", nil]]
         expect(row[0]).to eq(0)    # Sun
         expect(row[1]).to eq(60)   # Mon
         expect(row[2]).to eq(0)    # Tue
@@ -182,13 +214,13 @@ RSpec.describe Claire::Report do
 
         grid = Claire::Report.weekly(entries_path: path, week_containing: Date.new(2026, 5, 14))
 
-        expect(grid.rows.keys).to contain_exactly("PR00151", "PR00188")
+        expect(grid.rows.keys).to contain_exactly(["PR00151", nil], ["PR00188", nil])
 
-        pr151_row = grid.rows["PR00151"]
+        pr151_row = grid.rows[["PR00151", nil]]
         expect(pr151_row[1]).to eq(60)  # Mon
         expect(pr151_row.sum).to eq(60)
 
-        pr188_row = grid.rows["PR00188"]
+        pr188_row = grid.rows[["PR00188", nil]]
         expect(pr188_row[1]).to eq(45)  # Mon
         expect(pr188_row[3]).to eq(90)  # Wed
         expect(pr188_row.sum).to eq(135)
@@ -216,7 +248,7 @@ RSpec.describe Claire::Report do
 
         expect(grid.start_date).to eq(Date.new(2026, 5, 3))
         # Saturday is index 6
-        expect(grid.rows["PR00151"][6]).to eq(60)
+        expect(grid.rows[["PR00151", nil]][6]).to eq(60)
         expect(grid.grand_total).to eq(60)
       end
     end
@@ -239,7 +271,7 @@ RSpec.describe Claire::Report do
         expect(grid.start_date).to eq(Date.new(2026, 5, 10))
         expect(grid.days.last).to eq(Date.new(2026, 5, 16))
         # Sunday is index 0
-        expect(grid.rows["PR00151"][0]).to eq(30)
+        expect(grid.rows[["PR00151", nil]][0]).to eq(30)
         expect(grid.grand_total).to eq(30)
       end
     end
@@ -280,7 +312,7 @@ RSpec.describe Claire::Report do
         # Only the Thursday entry should be counted
         expect(grid.grand_total).to eq(90)
         # Thursday is index 4
-        expect(grid.rows["PR00151"][4]).to eq(90)
+        expect(grid.rows[["PR00151", nil]][4]).to eq(90)
       end
     end
 
@@ -378,7 +410,7 @@ RSpec.describe Claire::Report do
         # Integer minutes are stored; conversion to hours happens at render time
         # 60 minutes = exactly 60, not floating point
         expect(grid.grand_total).to eq(60)
-        expect(grid.rows["PR00151"][1]).to eq(60)  # Monday is index 1
+        expect(grid.rows[["PR00151", nil]][1]).to eq(60)  # Monday is index 1
         # 60 / 60.0 = exactly 1.0, not 0.999...
         expect(grid.grand_total / 60.0).to eq(1.0)
       end
@@ -512,7 +544,7 @@ RSpec.describe Claire::Report do
 
         expect(grid.days.length).to eq(1)
         expect(grid.days.first).to eq(Date.new(2026, 5, 7))
-        expect(grid.rows["PR00151"]).to eq([60])
+        expect(grid.rows[["PR00151", nil]]).to eq([60])
         expect(grid.grand_total).to eq(60)
       end
     end
@@ -554,7 +586,7 @@ RSpec.describe Claire::Report do
         # 5 days: May 4 (Mon), May 5 (Tue), May 6 (Wed), May 7 (Thu), May 8 (Fri)
         expect(grid.days.length).to eq(5)
         expect(grid.grand_total).to eq(195)  # 60 + 45 + 90
-        row = grid.rows["PR00151"]
+        row = grid.rows[["PR00151", nil]]
         expect(row[0]).to eq(60)  # May 4
         expect(row[1]).to eq(0)   # May 5
         expect(row[2]).to eq(45)  # May 6

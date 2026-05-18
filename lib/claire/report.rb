@@ -9,7 +9,8 @@ module Claire
     Grid = Data.define(:start_date, :days, :rows, :daily_totals, :grand_total)
     # - start_date: Date (Sunday of the containing week)
     # - days: Array<Date> of length 7 (Sun..Sat)
-    # - rows: { "PR00151" => [m_sun, m_mon, ..., m_sat] }  (integer minutes per day)
+    # - rows: { [project_code, epic_key] => [m_sun, ..., m_sat] }
+    #         epic_key is nil for entries without one (raw project-code logs).
     # - daily_totals: [sum_sun, sum_mon, ..., sum_sat]  (integers, minutes)
     # - grand_total: integer minutes
 
@@ -71,13 +72,15 @@ module Claire
           minutes = parsed["minutes"].to_i
           next unless minutes > 0
 
-          minute_map[project_code][worked_on] += minutes
+          epic_key = parsed["epic_key"]
+          row_key = [project_code, epic_key]
+          minute_map[row_key][worked_on] += minutes
         end
       end
 
       rows = {}
-      minute_map.each do |project_code, day_minutes|
-        rows[project_code] = days.map { |day| day_minutes[day] }
+      minute_map.each do |row_key, day_minutes|
+        rows[row_key] = days.map { |day| day_minutes[day] }
       end
 
       daily_totals = (0...days.length).map do |day_index|
