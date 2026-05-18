@@ -66,5 +66,33 @@ module Claire
 
       raise ArgumentError, "unparseable date: #{input.inspect}"
     end
+
+    # Expand a date expression into the Sun-Sat week that contains it.
+    # Accepts everything .parse accepts, plus "this week", "last week",
+    # and "N weeks ago" (any positive integer N).
+    #
+    # @return [Array(Date, Date)] [sunday, saturday] of the containing week
+    # @raise [ArgumentError] on unparseable input (including "next week")
+    def self.expand_to_week(input, today: Date.today)
+      raise ArgumentError, "expand_to_week requires a non-empty input" if input.nil? || input.strip.empty?
+
+      normalized = input.strip.downcase
+      anchor =
+        case normalized
+        when "this week"
+          today
+        when "last week"
+          today - 7
+        when /\A(\d+)\s+weeks?\s+ago\z/
+          today - 7 * Regexp.last_match(1).to_i
+        when /\bnext\b/
+          raise ArgumentError, "claire does not support 'next week' / future weeks; pick a past or current week"
+        else
+          parse(input, today: today)
+        end
+
+      sunday = anchor - anchor.wday
+      [sunday, sunday + 6]
+    end
   end
 end

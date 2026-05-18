@@ -98,4 +98,62 @@ RSpec.describe Claire::Dates do
       expect(result).to eq(Date.new(2026, 5, 11))
     end
   end
+
+  describe ".expand_to_week (#50)" do
+    let(:thursday) { Date.new(2026, 5, 14) } # Thursday; that week is Sun 5/10 .. Sat 5/16
+
+    it "returns the Sun-Sat window containing today's week for 'this week'" do
+      result = Claire::Dates.expand_to_week("this week", today: thursday)
+
+      expect(result).to eq([Date.new(2026, 5, 10), Date.new(2026, 5, 16)])
+    end
+
+    it "returns the prior Sun-Sat window for 'last week'" do
+      result = Claire::Dates.expand_to_week("last week", today: thursday)
+
+      expect(result).to eq([Date.new(2026, 5, 3), Date.new(2026, 5, 9)])
+    end
+
+    it "returns the Sun-Sat window N weeks back for 'N weeks ago'" do
+      result = Claire::Dates.expand_to_week("2 weeks ago", today: thursday)
+
+      expect(result).to eq([Date.new(2026, 4, 26), Date.new(2026, 5, 2)])
+    end
+
+    it "handles 'three weeks ago' as English spelling" do
+      result = Claire::Dates.expand_to_week("3 weeks ago", today: thursday)
+
+      expect(result).to eq([Date.new(2026, 4, 19), Date.new(2026, 4, 25)])
+    end
+
+    it "expands an ISO date to its Sun-Sat week" do
+      result = Claire::Dates.expand_to_week("2026-05-13", today: thursday)
+
+      expect(result).to eq([Date.new(2026, 5, 10), Date.new(2026, 5, 16)])
+    end
+
+    it "expands a M/D date to its Sun-Sat week using today's year" do
+      result = Claire::Dates.expand_to_week("5/13", today: thursday)
+
+      expect(result).to eq([Date.new(2026, 5, 10), Date.new(2026, 5, 16)])
+    end
+
+    it "expands 'today' to today's week" do
+      result = Claire::Dates.expand_to_week("today", today: thursday)
+
+      expect(result).to eq([Date.new(2026, 5, 10), Date.new(2026, 5, 16)])
+    end
+
+    it "rejects 'next week' with a helpful ArgumentError" do
+      expect {
+        Claire::Dates.expand_to_week("next week", today: thursday)
+      }.to raise_error(ArgumentError, /next week|unparseable|unrecognized/i)
+    end
+
+    it "rejects gibberish with ArgumentError" do
+      expect {
+        Claire::Dates.expand_to_week("hot dog", today: thursday)
+      }.to raise_error(ArgumentError)
+    end
+  end
 end
