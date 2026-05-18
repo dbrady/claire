@@ -214,18 +214,19 @@ when "approve"
     banner <<~BANNER
       Usage: claire approve <add|list|rm> [args...]
 
-      Manage manual Clarity approval records. Tracks which project codes you
-      have personally verified as approved, with ISO-8601 timestamps.
+      Manage manual Clarity approval records. Clarity grants approval at the
+      epic level, so approvals are keyed by the JIRA key of the epic (e.g.
+      MP-445), not by project code.
 
       Subcommands:
-        add <code>          Record approval for a project code (timestamps now).
+        add <epic-key>      Record approval for a JIRA epic key (timestamps now).
         list                List all approval records.
-        rm <code>           Remove an approval record.
+        rm <epic-key>       Remove an approval record.
 
       Examples:
-        claire approve add PR00673
+        claire approve add MP-445
         claire approve list
-        claire approve rm PR00673
+        claire approve rm MP-445
     BANNER
     stop_on %w[add list rm]
   end
