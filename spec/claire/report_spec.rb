@@ -8,6 +8,31 @@ require "claire/report"
 require "claire/config"
 
 RSpec.describe Claire::Report do
+  describe "ticket-grain rows (#51, --full)" do
+    it "groups by [project_code, epic_key, jira_ticket] when grain: :ticket" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, [
+          # Two tickets under the same epic — separate rows under :ticket grain.
+          { "project_code" => "PR00151", "epic_key" => "MP-445", "jira_ticket" => "MP-715", "minutes" => 30,  "worked_on" => "2026-05-11" }.to_json,
+          { "project_code" => "PR00151", "epic_key" => "MP-445", "jira_ticket" => "MP-716", "minutes" => 60,  "worked_on" => "2026-05-12" }.to_json,
+          # Same ticket twice on the same day — single row, summed daily cell.
+          { "project_code" => "PR00151", "epic_key" => "MP-445", "jira_ticket" => "MP-715", "minutes" => 15,  "worked_on" => "2026-05-11" }.to_json,
+        ].join("\n") + "\n")
+
+        grid = Claire::Report.weekly(entries_path: path, week_containing: Date.new(2026, 5, 13), grain: :ticket)
+
+        expect(grid.rows.keys).to contain_exactly(
+          ["PR00151", "MP-445", "MP-715"],
+          ["PR00151", "MP-445", "MP-716"],
+        )
+        # MP-715: 30 + 15 = 45 minutes, all on Mon (index 1).
+        expect(grid.rows[["PR00151", "MP-445", "MP-715"]][1]).to eq(45)
+        expect(grid.rows[["PR00151", "MP-445", "MP-716"]][2]).to eq(60)
+      end
+    end
+  end
+
   describe "epic-aware grouping (#49)" do
     it "produces one row per (project_code, epic_key) tuple, even when they share a project code" do
       Dir.mktmpdir do |dir|
