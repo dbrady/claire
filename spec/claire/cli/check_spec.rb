@@ -83,6 +83,39 @@ RSpec.describe Claire::CLI::Check do
       expect(lines).to include("      -> PR00151: PR00151")
     end
 
+    it "looks up approvals by epic_key, not project_code (the [OK] line mentions the epic)" do
+      # Use distinct values so the assertion can tell which one is on the
+      # approval line vs which one is on the tree/project line.
+      res = resolution(
+        walked_chain: [hop("MP-445", summary: "Epic", issuetype: "Epic")],
+        project_code: "PR00151",
+        epic_key: "MP-445",
+      )
+
+      out = run_check(res, approval: "2026-05-14T08:32:50-06:00")
+
+      approval_line = out.lines.find { |l| l.include?("[OK]") }
+      expect(approval_line).not_to be_nil, "expected an [OK] approval line in: #{out.inspect}"
+      expect(approval_line).to include("MP-445")
+      expect(approval_line).not_to include("PR00151")
+      expect(approval_line).to include("2026-05-14")
+    end
+
+    it "names the epic on the manual-mode line when no approval is recorded" do
+      res = resolution(
+        walked_chain: [hop("MP-999", summary: "Other epic", issuetype: "Epic")],
+        project_code: "PR00151",
+        epic_key: "MP-999",
+      )
+
+      out = run_check(res, approval: nil)
+
+      manual_line = out.lines.find { |l| l.include?("manual mode") }
+      expect(manual_line).not_to be_nil
+      expect(manual_line).to include("MP-999")
+      expect(manual_line).not_to include("PR00151")
+    end
+
     it "renders only the project code line when there is no walk" do
       res = resolution(walked_chain: [], project_code: "PR00151", epic_key: nil)
 

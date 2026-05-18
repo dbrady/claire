@@ -56,16 +56,19 @@ module Claire
         format_walk(input, resolution).each { |line| puts line }
         puts "PR URL: #{resolution.pr_url}" if resolution.pr_url
         puts "Clarity: #{CLARITY_URL}"
-        approval = @approvals.lookup(resolution.project_code)
+        # Approvals are keyed by the epic Clarity actually approves (see #48).
+        # A raw project-code input has no epic_key — fall through to manual mode.
+        approval = @approvals.lookup(resolution.epic_key)
         if approval
           date = Time.iso8601(approval).strftime("%Y-%m-%d")
-          puts "        [OK] You manually recorded #{resolution.project_code} as approved on #{date}."
+          puts "        [OK] You manually recorded #{resolution.epic_key} as approved on #{date}."
         else
-          puts "  !!  manual mode: confirm you're approved for #{resolution.project_code} before logging time."
-          copied = @clipboard.copy(resolution.project_code)
+          subject = resolution.epic_key || resolution.project_code
+          puts "  !!  manual mode: confirm you're approved for #{subject} before logging time."
+          copied = @clipboard.copy(subject)
           if copied
             shortcut = @clipboard.paste_shortcut
-            puts "           I have put #{resolution.project_code} in the clipboard. Open the URL, hit TAB and"
+            puts "           I have put #{subject} in the clipboard. Open the URL, hit TAB and"
             puts "           then #{shortcut} to paste into the search field."
           end
         end

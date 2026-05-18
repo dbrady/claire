@@ -33,14 +33,14 @@ module Claire
 
       private
 
-      def run_add(project_code)
-        previous = @approvals.record(project_code)
+      def run_add(epic_key)
+        previous = @approvals.record(epic_key)
         date = Time.now.strftime("%Y-%m-%d")
         if previous
           previous_date = Time.iso8601(previous).strftime("%Y-%m-%d")
-          puts "re-recorded approval for #{project_code} (was #{previous_date}, now #{date})"
+          puts "re-recorded approval for #{epic_key} (was #{previous_date}, now #{date})"
         else
-          puts "recorded approval for #{project_code} on #{date}"
+          puts "recorded approval for #{epic_key} on #{date}"
         end
       end
 
@@ -50,19 +50,19 @@ module Claire
           puts "no approvals recorded"
           return
         end
-        listed.each do |code, timestamp|
+        listed.each do |epic_key, timestamp|
           date = Time.iso8601(timestamp).strftime("%Y-%m-%d")
-          puts "#{code} -> #{date}"
+          puts "#{epic_key} -> #{date}"
         end
       end
 
-      def run_rm(project_code, *extra)
-        if project_code.nil? || !extra.empty?
-          warn "Usage: claire approve rm <project-code>"
+      def run_rm(epic_key, *extra)
+        if epic_key.nil? || !extra.empty?
+          warn "Usage: claire approve rm <epic-key>"
           exit 1
         end
-        @approvals.rm(project_code)
-        puts "removed approval for #{project_code}"
+        @approvals.rm(epic_key)
+        puts "removed approval for #{epic_key}"
       end
     end
   end
