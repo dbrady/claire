@@ -34,13 +34,15 @@ module Claire
           minutes: minutes,
           worked_on: worked_on,
           jira_ticket: resolution.jira_ticket,
+          epic_key: resolution.epic_key,
           pr_url: resolution.pr_url,
           note: note,
         )
 
         ticket_suffix = " (#{resolution.jira_ticket})" if resolution.jira_ticket
+        epic_suffix = " [#{resolution.epic_key}]" if resolution.epic_key
         label = @project_names.label(resolution.project_code)
-        puts "logged #{minutes}m to #{label}#{ticket_suffix} on #{worked_on}"
+        puts "logged #{minutes}m to #{label}#{epic_suffix}#{ticket_suffix} on #{worked_on}"
       rescue Claire::Jira::NotFoundError => e
         warn "claire: JIRA issue not found: #{e.key}"
         exit 1

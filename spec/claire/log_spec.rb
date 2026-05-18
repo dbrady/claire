@@ -24,7 +24,7 @@ RSpec.describe Claire::Log do
           note: "review of MP-796",
         )
 
-        line = File.readlines(path).first.chomp
+        line = File.readlines(path).last.chomp
         row = JSON.parse(line)
 
         expect(row["project_code"]).to eq("PR00151")
@@ -48,13 +48,10 @@ RSpec.describe Claire::Log do
         log.append(project_code: "PR00151", minutes: 30, worked_on: worked_on)
         log.append(project_code: "PR00222", minutes: 60, worked_on: worked_on)
 
-        lines = File.readlines(path).map(&:chomp)
-        expect(lines.length).to eq(2)
-
-        first_row = JSON.parse(lines[0])
-        second_row = JSON.parse(lines[1])
-        expect(first_row["project_code"]).to eq("PR00151")
-        expect(second_row["project_code"]).to eq("PR00222")
+        data_rows = File.readlines(path).map { |l| JSON.parse(l.chomp) }.reject { |r| r.key?("_schema") }
+        expect(data_rows.length).to eq(2)
+        expect(data_rows[0]["project_code"]).to eq("PR00151")
+        expect(data_rows[1]["project_code"]).to eq("PR00222")
       end
     end
 
@@ -126,7 +123,7 @@ RSpec.describe Claire::Log do
 
         log.append(project_code: "PR00151", minutes: 15, worked_on: Date.new(2026, 5, 12))
 
-        row = JSON.parse(File.readlines(path).first.chomp)
+        row = JSON.parse(File.readlines(path).last.chomp)
         expect(row["id"]).to be_a(String)
         expect(row["id"].length).to be > 10
       end
@@ -139,7 +136,7 @@ RSpec.describe Claire::Log do
 
         log.append(project_code: "PR00151", minutes: 15, worked_on: Date.new(2026, 5, 12))
 
-        row = JSON.parse(File.readlines(path).first.chomp)
+        row = JSON.parse(File.readlines(path).last.chomp)
         expect(row["created_at"]).to match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
       end
     end
@@ -151,11 +148,75 @@ RSpec.describe Claire::Log do
 
         log.append(project_code: "PR00151", minutes: 15, worked_on: Date.new(2026, 5, 12))
 
-        row = JSON.parse(File.readlines(path).first.chomp)
+        row = JSON.parse(File.readlines(path).last.chomp)
         expect(row["project_code"]).to eq("PR00151")
         expect(row["jira_ticket"]).to be_nil
         expect(row["pr_url"]).to be_nil
         expect(row["note"]).to be_nil
+      end
+    end
+
+    it "persists epic_key on the row when provided" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        log = Claire::Log.new(path: path)
+
+        log.append(
+          project_code: "PR00151",
+          minutes: 30,
+          worked_on: Date.new(2026, 5, 12),
+          jira_ticket: "MP-820",
+          epic_key: "MP-445",
+        )
+
+        row = JSON.parse(File.readlines(path).last.chomp)
+        expect(row["epic_key"]).to eq("MP-445")
+      end
+    end
+
+    it "stores epic_key as nil when omitted" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        log = Claire::Log.new(path: path)
+
+        log.append(project_code: "PR00151", minutes: 30, worked_on: Date.new(2026, 5, 12))
+
+        row = JSON.parse(File.readlines(path).last.chomp)
+        expect(row).to have_key("epic_key")
+        expect(row["epic_key"]).to be_nil
+      end
+    end
+
+    it "wipes a pre-existing entries.jsonl that lacks the schema marker before appending" do
+      # Alpha: no migration from the pre-#47 schema. The first append after
+      # upgrading must drop rows that lack epic_key so report/journal can
+      # trust the new shape.
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        File.write(path, %({"project_code":"PR00151","minutes":30,"worked_on":"2026-05-01"}\n))
+        log = Claire::Log.new(path: path)
+
+        log.append(project_code: "PR00151", minutes: 15, worked_on: Date.new(2026, 5, 12), epic_key: "MP-445")
+
+        lines = File.readlines(path).map(&:chomp)
+        rows = lines.map { |l| JSON.parse(l) }
+        # Marker + one new row; the pre-existing legacy row is gone.
+        data_rows = rows.reject { |r| r.key?("_schema") }
+        expect(data_rows.length).to eq(1)
+        expect(data_rows.first["minutes"]).to eq(15)
+      end
+    end
+
+    it "keeps existing rows when the file already carries the current schema marker" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "entries.jsonl")
+        log = Claire::Log.new(path: path)
+
+        log.append(project_code: "PR00151", minutes: 10, worked_on: Date.new(2026, 5, 12), epic_key: "MP-445")
+        log.append(project_code: "PR00151", minutes: 20, worked_on: Date.new(2026, 5, 13), epic_key: "MP-445")
+
+        rows = File.readlines(path).map { |l| JSON.parse(l.chomp) }.reject { |r| r.key?("_schema") }
+        expect(rows.map { |r| r["minutes"] }).to eq([10, 20])
       end
     end
 
