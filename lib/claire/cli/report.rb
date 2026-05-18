@@ -14,12 +14,13 @@ module Claire
         @project_names = project_names
       end
 
-      def run(mode: :this_week, week: nil, start_date: nil, end_date: nil, names: false)
+      def run(mode: :this_week, week: nil, start_date: nil, end_date: nil, names: false, full: false)
+        grain = full ? :ticket : :epic
         grid = case mode
-               when :this_week    then Claire::Report.weekly(week_containing: @today)
-               when :last_week    then Claire::Report.weekly(week_containing: @today - 7)
-               when :specific_week then Claire::Report.weekly(week_containing: week)
-               when :range        then Claire::Report.range(start_date: start_date, end_date: end_date)
+               when :this_week    then Claire::Report.weekly(week_containing: @today, grain: grain)
+               when :last_week    then Claire::Report.weekly(week_containing: @today - 7, grain: grain)
+               when :specific_week then Claire::Report.weekly(week_containing: week, grain: grain)
+               when :range        then Claire::Report.range(start_date: start_date, end_date: end_date, grain: grain)
                end
 
         if grid.rows.empty?
@@ -28,7 +29,7 @@ module Claire
           return
         end
 
-        puts format_grid(grid, names: names)
+        puts format_grid(grid, names: names, full: full)
       rescue ArgumentError => e
         warn "claire report: #{e.message}"
         exit 1
@@ -36,53 +37,58 @@ module Claire
 
       private
 
-      def format_grid(grid, names:)
+      def format_grid(grid, names:, full:)
         day_headers = grid.days.map do |day|
           "#{DAY_NAMES[day.wday]} #{day.strftime("%m/%d")}"
         end
 
         all_headers = day_headers + ["TOTAL"]
 
-        # Stable sort across (project_code, epic_key) tuples. nil epic_keys
-        # bucket under empty string so they sort to the top of their project
-        # group instead of crashing the comparator.
-        sorted_rows = grid.rows.sort_by { |(code, epic), _| [code, epic.to_s] }
+        # Sort by the full row key, coercing nil components to "" so the
+        # comparator doesn't blow up on (str <=> nil).
+        sorted_rows = grid.rows.sort_by { |key, _| key.map(&:to_s) }
 
-        # Two label columns: Project | Epic. Each row's project label honors
-        # the --names flag exactly like the old single column did; the epic
-        # column is always the bare key (or "-" when nil).
-        project_labels = sorted_rows.map { |(code, _epic), _| names ? @project_names.label(code) : code }
-        epic_labels = sorted_rows.map { |(_code, epic), _| epic || "-" }
+        project_labels = sorted_rows.map { |key, _| names ? @project_names.label(key[0]) : key[0] }
+        epic_labels    = sorted_rows.map { |key, _| key[1] || "-" }
+        ticket_labels  = full ? sorted_rows.map { |key, _| key[2] || "-" } : nil
 
-        project_width = [(project_labels + ["Project"]).map(&:length).max, 7].max
-        epic_width = [(epic_labels + ["Epic"]).map(&:length).max, 6].max
+        label_headers = ["Project", "Epic"]
+        label_widths  = [
+          [(project_labels + ["Project"]).map(&:length).max, 7].max,
+          [(epic_labels    + ["Epic"]).map(&:length).max, 6].max,
+        ]
+        all_label_columns = [project_labels, epic_labels]
+
+        if full
+          label_headers << "Ticket"
+          label_widths  << [(ticket_labels + ["Ticket"]).map(&:length).max, 6].max
+          all_label_columns << ticket_labels
+        end
+
         col_widths = all_headers.map { |header| [header.length, 6].max }
 
-        separator = build_separator([project_width, epic_width], col_widths)
-        header_row = build_header_row(["Project", "Epic"], [project_width, epic_width], all_headers, col_widths)
+        separator = build_separator(label_widths, col_widths)
+        header_row = build_header_row(label_headers, label_widths, all_headers, col_widths)
 
         lines = []
         lines << separator
         lines << header_row
         lines << separator
 
-        sorted_rows.each_with_index do |((_code, _epic), day_minutes), index|
+        sorted_rows.each_with_index do |(_key, day_minutes), index|
           row_total = day_minutes.sum
           cells = day_minutes.map { |minutes| Claire::Report.format_minutes(minutes) }
           cells << Claire::Report.format_minutes(row_total)
-          lines << build_data_row(
-            [project_labels[index], epic_labels[index]],
-            cells,
-            [project_width, epic_width],
-            col_widths,
-          )
+          labels = all_label_columns.map { |col| col[index] }
+          lines << build_data_row(labels, cells, label_widths, col_widths)
         end
 
         lines << separator
 
         total_cells = grid.daily_totals.map { |minutes| Claire::Report.format_minutes(minutes) }
         total_cells << Claire::Report.format_minutes(grid.grand_total)
-        lines << build_data_row(["TOTAL", ""], total_cells, [project_width, epic_width], col_widths)
+        total_labels = ["TOTAL"] + Array.new(label_widths.length - 1, "")
+        lines << build_data_row(total_labels, total_cells, label_widths, col_widths)
         lines << separator
 
         lines.join("\n")

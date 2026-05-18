@@ -147,6 +147,7 @@ when "report"
     opt :end,   "Range end date (YYYY-MM-DD)", type: :string, short: "-e"
     opt :date,  "Sun-Sat week containing this date expression ('last week', '2 weeks ago', YYYY-MM-DD, M/D, today)", type: :string, short: "-d"
     opt :names, "Include project names in row labels (default: bare codes)", short: "-n", default: false
+    opt :full,  "Per-ticket row grain instead of per-epic (adds a Ticket column)", short: "-f", default: false
   end
   positional = ARGV.shift
 
@@ -166,25 +167,26 @@ when "report"
 
   cli = Claire::CLI::Report.new
   names = subopts[:names]
+  full = subopts[:full]
   case present
   when []
-    cli.run(mode: :this_week, names: names)
+    cli.run(mode: :this_week, names: names, full: full)
   when [:last]
-    cli.run(mode: :last_week, names: names)
+    cli.run(mode: :last_week, names: names, full: full)
   when [:week]
-    cli.run(mode: :specific_week, week: parse_iso(subopts[:week]), names: names)
+    cli.run(mode: :specific_week, week: parse_iso(subopts[:week]), names: names, full: full)
   when [:date]
     begin
       sunday, saturday = Claire::Dates.expand_to_week(subopts[:date])
     rescue ArgumentError => e
       warn "claire report: #{e.message}"; exit 1
     end
-    cli.run(mode: :range, start_date: sunday, end_date: saturday, names: names)
+    cli.run(mode: :range, start_date: sunday, end_date: saturday, names: names, full: full)
   when [:start, :end]
     cli.run(mode: :range,
             start_date: parse_iso(subopts[:start]),
             end_date:   parse_iso(subopts[:end]),
-            names: names)
+            names: names, full: full)
   when [:start]
     warn "claire report: --start requires --end"; exit 1
   when [:end]

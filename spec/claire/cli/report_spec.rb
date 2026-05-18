@@ -33,6 +33,29 @@ RSpec.describe Claire::CLI::Report do
     end
   end
 
+  it "with full: true, shows a Ticket column and one row per (project, epic, ticket) (#51)" do
+    Dir.mktmpdir("claire-report-cli-full") do |dir|
+      entries_path = File.join(dir, "entries.jsonl")
+      File.write(entries_path, [
+        { project_code: "PR00151", epic_key: "MP-445", jira_ticket: "MP-715", minutes: 30,  worked_on: "2026-05-14" }.to_json,
+        { project_code: "PR00151", epic_key: "MP-445", jira_ticket: "MP-716", minutes: 60,  worked_on: "2026-05-14" }.to_json,
+      ].join("\n") + "\n")
+
+      project_names_path = File.join(dir, "project_names.yml")
+      File.write(project_names_path, YAML.dump({}))
+
+      allow(Claire::Config).to receive(:default_entries_path).and_return(entries_path)
+      allow(Claire::Config).to receive(:default_project_names_path).and_return(project_names_path)
+
+      output = capture_stdout { described_class.new(today: thursday).run(mode: :this_week, full: true) }
+
+      header_line = output.lines.find { |l| l.include?("Ticket") }
+      expect(header_line).not_to be_nil, "expected a Ticket column in:\n#{output}"
+      expect(output).to include("MP-715")
+      expect(output).to include("MP-716")
+    end
+  end
+
   it "shows Project and Epic header columns (#49)" do
     with_data_dir do
       output = capture_stdout { described_class.new(today: thursday).run(mode: :this_week) }

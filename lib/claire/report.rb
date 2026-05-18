@@ -25,20 +25,24 @@ module Claire
 
     # @param entries_path [String] path to the JSONL file
     # @param week_containing [Date] anchor date; report shows the Sun–Sat week containing this date
+    # @param grain [Symbol] :epic (default) or :ticket — see range()
     # @return [Grid] structured data ready for rendering
-    def self.weekly(entries_path: Claire::Config.default_entries_path, week_containing: Date.today)
+    def self.weekly(entries_path: Claire::Config.default_entries_path, week_containing: Date.today, grain: :epic)
       start_date = week_containing - week_containing.wday
       end_date = start_date + 6
-      range(entries_path: entries_path, start_date: start_date, end_date: end_date)
+      range(entries_path: entries_path, start_date: start_date, end_date: end_date, grain: grain)
     end
 
     # @param entries_path [String] path to the JSONL file
     # @param start_date [Date] first day of the range (inclusive)
     # @param end_date [Date] last day of the range (inclusive)
+    # @param grain [Symbol] :epic groups by [project_code, epic_key];
+    #                       :ticket groups by [project_code, epic_key, jira_ticket].
     # @return [Grid] structured data ready for rendering
     # @raise [ArgumentError] if end_date < start_date or range spans more than 14 days
-    def self.range(entries_path: Claire::Config.default_entries_path, start_date:, end_date:)
+    def self.range(entries_path: Claire::Config.default_entries_path, start_date:, end_date:, grain: :epic)
       raise ArgumentError, "end_date must be >= start_date" if end_date < start_date
+      raise ArgumentError, "unknown grain: #{grain.inspect}" unless %i[epic ticket].include?(grain)
 
       days = (start_date..end_date).to_a
       raise ArgumentError, "range too wide for table output; narrow it or skip it" if days.length > 14
@@ -73,7 +77,12 @@ module Claire
           next unless minutes > 0
 
           epic_key = parsed["epic_key"]
-          row_key = [project_code, epic_key]
+          row_key =
+            if grain == :ticket
+              [project_code, epic_key, parsed["jira_ticket"]]
+            else
+              [project_code, epic_key]
+            end
           minute_map[row_key][worked_on] += minutes
         end
       end
