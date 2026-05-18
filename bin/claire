@@ -6,7 +6,7 @@ $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "optimist"
 require "claire"
 
-SUBCOMMANDS = %w[init doctor check log report edit alias approve].freeze
+SUBCOMMANDS = %w[init doctor check log report journal edit alias approve].freeze
 
 global_opts = Optimist.options do
   banner <<~BANNER
@@ -21,6 +21,7 @@ global_opts = Optimist.options do
       check   Resolve a ticket/PR/code and print the project code
       log     Resolve and record a billable time entry
       report  Show weekly hours by project code
+      journal Show every logged entry chronologically (per-row, no aggregation)
       edit    Open the time log in $EDITOR
       alias   Manage project-code aliases (add/list/rm)
       approve Manage manual Clarity approval records (add/list/rm)
@@ -196,6 +197,69 @@ when "report"
       warn "claire report: --date cannot be combined with --start/--end, --week, or 'last'"; exit 1
     else
       warn "claire report: cannot mix `last`, --week, and --start/--end"; exit 1
+    end
+  end
+when "journal"
+  require "claire/cli/journal"
+  require "claire/dates"
+  jopts = Optimist.options do
+    banner <<~BANNER
+      Usage: claire journal [options]
+
+      Show every logged time entry in the range as its own row -- no rollups.
+      Use this when you need to recall *what* you did, not just totals.
+
+      Default range: the Sun-Sat week containing today.
+    BANNER
+    opt :week,  "Sun-Sat week containing this date (YYYY-MM-DD)", type: :string, short: :none
+    opt :start, "Range start date (YYYY-MM-DD)", type: :string, short: "-s"
+    opt :end,   "Range end date (YYYY-MM-DD)", type: :string, short: "-e"
+    opt :date,  "Sun-Sat week containing this date expression ('last week', '2 weeks ago', YYYY-MM-DD, M/D, today)", type: :string, short: "-d"
+  end
+  jpositional = ARGV.shift
+
+  def parse_iso_for_journal(str)
+    Date.iso8601(str)
+  rescue Date::Error, ArgumentError
+    warn "claire journal: invalid date '#{str}' — expected YYYY-MM-DD"
+    exit 1
+  end
+
+  jpresent = []
+  jpresent << :last  if jpositional == "last"
+  jpresent << :week  if jopts[:week]
+  jpresent << :start if jopts[:start]
+  jpresent << :end   if jopts[:end]
+  jpresent << :date  if jopts[:date]
+
+  jcli = Claire::CLI::Journal.new
+  case jpresent
+  when []
+    jcli.run(mode: :this_week)
+  when [:last]
+    jcli.run(mode: :last_week)
+  when [:week]
+    jcli.run(mode: :specific_week, week: parse_iso_for_journal(jopts[:week]))
+  when [:date]
+    begin
+      sunday, saturday = Claire::Dates.expand_to_week(jopts[:date])
+    rescue ArgumentError => e
+      warn "claire journal: #{e.message}"; exit 1
+    end
+    jcli.run(mode: :range, start_date: sunday, end_date: saturday)
+  when [:start, :end]
+    jcli.run(mode: :range,
+             start_date: parse_iso_for_journal(jopts[:start]),
+             end_date:   parse_iso_for_journal(jopts[:end]))
+  when [:start]
+    warn "claire journal: --start requires --end"; exit 1
+  when [:end]
+    warn "claire journal: --end requires --start"; exit 1
+  else
+    if jpresent.include?(:date)
+      warn "claire journal: --date cannot be combined with --start/--end, --week, or 'last'"; exit 1
+    else
+      warn "claire journal: cannot mix `last`, --week, and --start/--end"; exit 1
     end
   end
 when "edit"
