@@ -53,7 +53,7 @@ module Claire
       private
 
       def print_resolution(input, resolution)
-        puts format_walk(input, resolution)
+        format_walk(input, resolution).each { |line| puts line }
         puts "PR URL: #{resolution.pr_url}" if resolution.pr_url
         puts "Clarity: #{CLARITY_URL}"
         approval = @approvals.lookup(resolution.project_code)
@@ -71,18 +71,33 @@ module Claire
         end
       end
 
-      def format_walk(input, resolution)
+      # Nested tree:
+      #
+      #   MP-715: (Sub-Task) Convert decorators ...
+      #     -> MP-421: (Story) es-MX date presentation
+      #       -> MP-445: (Epic) MX2 - MP Additional Adjustments
+      #         -> PR00151: Acima Mexico Milestone 2
+      #
+      # First hop has no prefix; each successive hop indents two spaces and
+      # adds "-> ". Project-code line sits one level deeper than the last
+      # walked hop. When there is no walk, only the project-code line is
+      # emitted, also without a prefix.
+      def format_walk(_input, resolution)
         label = @project_names.label(resolution.project_code)
-        if resolution.walked_chain.any?
-          # Transitional: #45 enriches walked_chain hops to {key, summary, issuetype}.
-          # #46 will rewrite this output as a nested tree using the new data; for now
-          # we render the key chain as before so the existing UX keeps working.
-          keys = resolution.walked_chain.map { |hop| hop.is_a?(Hash) ? hop["key"] : hop }
-          chain = keys.join(" -> ")
-          "#{chain} -> project code: #{label}"
-        else
-          "project code: #{label}"
-        end
+        hops = resolution.walked_chain
+        lines = hops.each_with_index.map { |hop, i| format_hop(hop, depth: i) }
+        lines << format_project_code(resolution.project_code, label, depth: hops.length)
+        lines
+      end
+
+      def format_hop(hop, depth:)
+        prefix = depth.zero? ? "" : ("  " * depth) + "-> "
+        "#{prefix}#{hop["key"]}: (#{hop["issuetype"]}) #{hop["summary"]}"
+      end
+
+      def format_project_code(code, label, depth:)
+        prefix = depth.zero? ? "" : ("  " * depth) + "-> "
+        "#{prefix}#{code}: #{label}"
       end
     end
   end
