@@ -18,6 +18,32 @@ RSpec.describe Claire::Resolver do
     cache
   end
 
+  # Resolver requests these fields on every JIRA fetch (post-#45).
+  RESOLVER_FIELDS = ["customfield_10762", "parent", "summary", "issuetype"].freeze
+
+  # Build a JIRA fetch_issue stub with the post-#45 shape (summary + issuetype).
+  # Defaults issuetype to "Story" — terminal stops must explicitly pass "Epic".
+  def stub_issue(jira, key, project_code:, parent:, issuetype: "Story", summary: "#{key} summary")
+    allow(jira).to receive(:fetch_issue).with(key, fields: RESOLVER_FIELDS).and_return(
+      {
+        "key" => key,
+        "fields" => {
+          "customfield_10762" => project_code,
+          "parent" => parent ? { "key" => parent } : nil,
+          "summary" => summary,
+          "issuetype" => { "name" => issuetype },
+        },
+      },
+    )
+  end
+
+  # Build the enriched walked_chain hop hash that the resolver pushes per ticket.
+  # Defaults mirror stub_issue so a test can write `hop("MP-796")` and get a hop
+  # that matches a default `stub_issue(jira, "MP-796", ...)`.
+  def hop(key, summary: "#{key} summary", issuetype: "Story")
+    { "key" => key, "summary" => summary, "issuetype" => issuetype }
+  end
+
   describe ".resolve" do
     it "short-circuits on a raw project code and returns it without hitting JIRA" do
       jira = instance_double(Claire::Jira)
@@ -34,15 +60,7 @@ RSpec.describe Claire::Resolver do
 
     it "returns the project code when the issue has customfield_10762 set" do
       jira = instance_double(Claire::Jira)
-      allow(jira).to receive(:fetch_issue).with("MP-445", fields: ["customfield_10762", "parent"]).and_return(
-        {
-          "key" => "MP-445",
-          "fields" => {
-            "customfield_10762" => "PR00151",
-            "parent" => nil,
-          },
-        },
-      )
+      stub_issue(jira, "MP-445", project_code: "PR00151", parent: nil, issuetype: "Epic")
 
       resolution = Claire::Resolver.resolve("MP-445", jira: jira, cache: null_cache)
 
@@ -52,24 +70,8 @@ RSpec.describe Claire::Resolver do
 
     it "walks one level up to the parent when the child's customfield_10762 is empty" do
       jira = instance_double(Claire::Jira)
-      allow(jira).to receive(:fetch_issue).with("MP-796", fields: ["customfield_10762", "parent"]).and_return(
-        {
-          "key" => "MP-796",
-          "fields" => {
-            "customfield_10762" => "",
-            "parent" => { "key" => "MP-445" },
-          },
-        },
-      )
-      allow(jira).to receive(:fetch_issue).with("MP-445", fields: ["customfield_10762", "parent"]).and_return(
-        {
-          "key" => "MP-445",
-          "fields" => {
-            "customfield_10762" => "PR00151",
-            "parent" => nil,
-          },
-        },
-      )
+      stub_issue(jira, "MP-796", project_code: "", parent: "MP-445")
+      stub_issue(jira, "MP-445", project_code: "PR00151", parent: nil, issuetype: "Epic")
 
       resolution = Claire::Resolver.resolve("MP-796", jira: jira, cache: null_cache)
 
@@ -79,33 +81,9 @@ RSpec.describe Claire::Resolver do
 
     it "walks multiple levels up the parent chain to find the project code" do
       jira = instance_double(Claire::Jira)
-      allow(jira).to receive(:fetch_issue).with("CHILD-1", fields: ["customfield_10762", "parent"]).and_return(
-        {
-          "key" => "CHILD-1",
-          "fields" => {
-            "customfield_10762" => nil,
-            "parent" => { "key" => "MID-1" },
-          },
-        },
-      )
-      allow(jira).to receive(:fetch_issue).with("MID-1", fields: ["customfield_10762", "parent"]).and_return(
-        {
-          "key" => "MID-1",
-          "fields" => {
-            "customfield_10762" => nil,
-            "parent" => { "key" => "TOP-1" },
-          },
-        },
-      )
-      allow(jira).to receive(:fetch_issue).with("TOP-1", fields: ["customfield_10762", "parent"]).and_return(
-        {
-          "key" => "TOP-1",
-          "fields" => {
-            "customfield_10762" => "PR99999",
-            "parent" => nil,
-          },
-        },
-      )
+      stub_issue(jira, "CHILD-1", project_code: nil, parent: "MID-1")
+      stub_issue(jira, "MID-1", project_code: nil, parent: "TOP-1")
+      stub_issue(jira, "TOP-1", project_code: "PR99999", parent: nil, issuetype: "Epic")
 
       resolution = Claire::Resolver.resolve("CHILD-1", jira: jira, cache: null_cache)
 
@@ -115,15 +93,7 @@ RSpec.describe Claire::Resolver do
 
     it "raises with the walked chain when no project code is found after reaching the top" do
       jira = instance_double(Claire::Jira)
-      allow(jira).to receive(:fetch_issue).with("MP-100", fields: ["customfield_10762", "parent"]).and_return(
-        {
-          "key" => "MP-100",
-          "fields" => {
-            "customfield_10762" => nil,
-            "parent" => nil,
-          },
-        },
-      )
+      stub_issue(jira, "MP-100", project_code: nil, parent: nil)
 
       expect {
         Claire::Resolver.resolve("MP-100", jira: jira, cache: null_cache)
@@ -132,22 +102,12 @@ RSpec.describe Claire::Resolver do
 
     it "raises when the parent chain exceeds depth 5" do
       jira = instance_double(Claire::Jira)
-      # Build a chain: DEEP-1 -> DEEP-2 -> DEEP-3 -> DEEP-4 -> DEEP-5 -> DEEP-6 (never reached)
-      allow(jira).to receive(:fetch_issue).with("DEEP-1", fields: ["customfield_10762", "parent"]).and_return(
-        { "key" => "DEEP-1", "fields" => { "customfield_10762" => nil, "parent" => { "key" => "DEEP-2" } } },
-      )
-      allow(jira).to receive(:fetch_issue).with("DEEP-2", fields: ["customfield_10762", "parent"]).and_return(
-        { "key" => "DEEP-2", "fields" => { "customfield_10762" => nil, "parent" => { "key" => "DEEP-3" } } },
-      )
-      allow(jira).to receive(:fetch_issue).with("DEEP-3", fields: ["customfield_10762", "parent"]).and_return(
-        { "key" => "DEEP-3", "fields" => { "customfield_10762" => nil, "parent" => { "key" => "DEEP-4" } } },
-      )
-      allow(jira).to receive(:fetch_issue).with("DEEP-4", fields: ["customfield_10762", "parent"]).and_return(
-        { "key" => "DEEP-4", "fields" => { "customfield_10762" => nil, "parent" => { "key" => "DEEP-5" } } },
-      )
-      allow(jira).to receive(:fetch_issue).with("DEEP-5", fields: ["customfield_10762", "parent"]).and_return(
-        { "key" => "DEEP-5", "fields" => { "customfield_10762" => nil, "parent" => { "key" => "DEEP-6" } } },
-      )
+      # Chain DEEP-1 -> DEEP-2 -> ... -> DEEP-5 -> DEEP-6 (never reached).
+      stub_issue(jira, "DEEP-1", project_code: nil, parent: "DEEP-2")
+      stub_issue(jira, "DEEP-2", project_code: nil, parent: "DEEP-3")
+      stub_issue(jira, "DEEP-3", project_code: nil, parent: "DEEP-4")
+      stub_issue(jira, "DEEP-4", project_code: nil, parent: "DEEP-5")
+      stub_issue(jira, "DEEP-5", project_code: nil, parent: "DEEP-6")
 
       expect {
         Claire::Resolver.resolve("DEEP-1", jira: jira, cache: null_cache)
@@ -156,24 +116,8 @@ RSpec.describe Claire::Resolver do
 
     it "accepts a JIRA URL, extracts the ticket key, and resolves normally" do
       jira = instance_double(Claire::Jira)
-      allow(jira).to receive(:fetch_issue).with("MP-796", fields: ["customfield_10762", "parent"]).and_return(
-        {
-          "key" => "MP-796",
-          "fields" => {
-            "customfield_10762" => "",
-            "parent" => { "key" => "MP-445" },
-          },
-        },
-      )
-      allow(jira).to receive(:fetch_issue).with("MP-445", fields: ["customfield_10762", "parent"]).and_return(
-        {
-          "key" => "MP-445",
-          "fields" => {
-            "customfield_10762" => "PR00151",
-            "parent" => nil,
-          },
-        },
-      )
+      stub_issue(jira, "MP-796", project_code: "", parent: "MP-445")
+      stub_issue(jira, "MP-445", project_code: "PR00151", parent: nil, issuetype: "Epic")
 
       resolution = Claire::Resolver.resolve("https://upbd.atlassian.net/browse/MP-796", jira: jira, cache: null_cache)
 
@@ -191,19 +135,15 @@ RSpec.describe Claire::Resolver do
           pr_url: "https://github.com/acima-credit/merchant_portal/pull/17343",
           jira_ticket: "MP-796",
         })
-        allow(jira).to receive(:fetch_issue).with("MP-796", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "MP-796", "fields" => { "customfield_10762" => "", "parent" => { "key" => "MP-445" } } },
-        )
-        allow(jira).to receive(:fetch_issue).with("MP-445", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "MP-445", "fields" => { "customfield_10762" => "PR00151", "parent" => nil } },
-        )
+        stub_issue(jira, "MP-796", project_code: "", parent: "MP-445")
+        stub_issue(jira, "MP-445", project_code: "PR00151", parent: nil, issuetype: "Epic")
 
         resolution = Claire::Resolver.resolve("17343", jira: jira, github: github, cache: null_cache)
 
         expect(resolution.project_code).to eq("PR00151")
         expect(resolution.jira_ticket).to eq("MP-796")
         expect(resolution.pr_url).to eq("https://github.com/acima-credit/merchant_portal/pull/17343")
-        expect(resolution.walked_chain).to eq(["MP-796", "MP-445"])
+        expect(resolution.walked_chain).to eq([hop("MP-796"), hop("MP-445", issuetype: "Epic")])
       end
     end
 
@@ -218,19 +158,15 @@ RSpec.describe Claire::Resolver do
           pr_url: pr_url,
           jira_ticket: "MP-796",
         })
-        allow(jira).to receive(:fetch_issue).with("MP-796", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "MP-796", "fields" => { "customfield_10762" => "", "parent" => { "key" => "MP-445" } } },
-        )
-        allow(jira).to receive(:fetch_issue).with("MP-445", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "MP-445", "fields" => { "customfield_10762" => "PR00151", "parent" => nil } },
-        )
+        stub_issue(jira, "MP-796", project_code: "", parent: "MP-445")
+        stub_issue(jira, "MP-445", project_code: "PR00151", parent: nil, issuetype: "Epic")
 
         resolution = Claire::Resolver.resolve(pr_url, jira: jira, github: github, cache: null_cache)
 
         expect(resolution.project_code).to eq("PR00151")
         expect(resolution.jira_ticket).to eq("MP-796")
         expect(resolution.pr_url).to eq(pr_url)
-        expect(resolution.walked_chain).to eq(["MP-796", "MP-445"])
+        expect(resolution.walked_chain).to eq([hop("MP-796"), hop("MP-445", issuetype: "Epic")])
       end
     end
 
@@ -267,73 +203,43 @@ RSpec.describe Claire::Resolver do
     context "legacy project code filtering during the walk" do
       it "skips a legacy-pattern project code on the parent and walks further up to the grandparent" do
         jira = instance_double(Claire::Jira)
-        # MP-814: no project code
-        allow(jira).to receive(:fetch_issue).with("MP-814", fields: ["customfield_10762", "parent"]).and_return(
-          {
-            "key" => "MP-814",
-            "fields" => {
-              "customfield_10762" => nil,
-              "parent" => { "key" => "MP-4" },
-            },
-          },
-        )
-        # MP-4: legacy code (must be skipped)
-        allow(jira).to receive(:fetch_issue).with("MP-4", fields: ["customfield_10762", "parent"]).and_return(
-          {
-            "key" => "MP-4",
-            "fields" => {
-              "customfield_10762" => "A25-1D861",
-              "parent" => { "key" => "UPP-953" },
-            },
-          },
-        )
-        # UPP-953: real current code (returned)
-        allow(jira).to receive(:fetch_issue).with("UPP-953", fields: ["customfield_10762", "parent"]).and_return(
-          {
-            "key" => "UPP-953",
-            "fields" => {
-              "customfield_10762" => "PR00206",
-              "parent" => nil,
-            },
-          },
-        )
+        stub_issue(jira, "MP-814", project_code: nil, parent: "MP-4")
+        stub_issue(jira, "MP-4", project_code: "A25-1D861", parent: "UPP-953")
+        stub_issue(jira, "UPP-953", project_code: "PR00206", parent: nil, issuetype: "Epic")
 
         resolution = Claire::Resolver.resolve("MP-814", jira: jira, cache: null_cache)
 
         expect(resolution.project_code).to eq("PR00206")
         expect(resolution.jira_ticket).to eq("MP-814")
-        expect(resolution.walked_chain).to eq(["MP-814", "MP-4", "UPP-953"])
+        expect(resolution.walked_chain).to eq([
+          hop("MP-814"),
+          hop("MP-4"),
+          hop("UPP-953", issuetype: "Epic"),
+        ])
       end
 
       it "skips legacy codes at multiple levels and finds a non-legacy code further up" do
         jira = instance_double(Claire::Jira)
-        allow(jira).to receive(:fetch_issue).with("CHILD-1", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "CHILD-1", "fields" => { "customfield_10762" => nil, "parent" => { "key" => "MID-1" } } },
-        )
-        allow(jira).to receive(:fetch_issue).with("MID-1", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "MID-1", "fields" => { "customfield_10762" => "B26-XYZ77", "parent" => { "key" => "TOP-1" } } },
-        )
-        allow(jira).to receive(:fetch_issue).with("TOP-1", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "TOP-1", "fields" => { "customfield_10762" => "C24-AAAAA", "parent" => { "key" => "ROOT-1" } } },
-        )
-        allow(jira).to receive(:fetch_issue).with("ROOT-1", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "ROOT-1", "fields" => { "customfield_10762" => "PR99999", "parent" => nil } },
-        )
+        stub_issue(jira, "CHILD-1", project_code: nil, parent: "MID-1")
+        stub_issue(jira, "MID-1", project_code: "B26-XYZ77", parent: "TOP-1")
+        stub_issue(jira, "TOP-1", project_code: "C24-AAAAA", parent: "ROOT-1")
+        stub_issue(jira, "ROOT-1", project_code: "PR99999", parent: nil, issuetype: "Epic")
 
         resolution = Claire::Resolver.resolve("CHILD-1", jira: jira, cache: null_cache)
 
         expect(resolution.project_code).to eq("PR99999")
-        expect(resolution.walked_chain).to eq(["CHILD-1", "MID-1", "TOP-1", "ROOT-1"])
+        expect(resolution.walked_chain).to eq([
+          hop("CHILD-1"),
+          hop("MID-1"),
+          hop("TOP-1"),
+          hop("ROOT-1", issuetype: "Epic"),
+        ])
       end
 
       it "raises NoProjectCodeError when the entire chain has only legacy codes" do
         jira = instance_double(Claire::Jira)
-        allow(jira).to receive(:fetch_issue).with("CHILD-1", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "CHILD-1", "fields" => { "customfield_10762" => "A25-AAAA1", "parent" => { "key" => "TOP-1" } } },
-        )
-        allow(jira).to receive(:fetch_issue).with("TOP-1", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "TOP-1", "fields" => { "customfield_10762" => "B26-BBBB2", "parent" => nil } },
-        )
+        stub_issue(jira, "CHILD-1", project_code: "A25-AAAA1", parent: "TOP-1")
+        stub_issue(jira, "TOP-1", project_code: "B26-BBBB2", parent: nil)
 
         expect {
           Claire::Resolver.resolve("CHILD-1", jira: jira, cache: null_cache)
@@ -403,9 +309,7 @@ RSpec.describe Claire::Resolver do
         cache = instance_double(Claire::Cache)
 
         allow(cache).to receive(:get).with("MP-445").and_return(nil)
-        allow(jira).to receive(:fetch_issue).with("MP-445", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "MP-445", "fields" => { "customfield_10762" => "PR00151", "parent" => nil } },
-        )
+        stub_issue(jira, "MP-445", project_code: "PR00151", parent: nil, issuetype: "Epic")
         allow(cache).to receive(:put)
 
         resolution = Claire::Resolver.resolve("MP-445", jira: jira, github: github, cache: cache)
@@ -420,6 +324,7 @@ RSpec.describe Claire::Resolver do
           jira_ticket: "MP-445",
           project_code: "PR00151",
           walked_chain: [],
+          epic_key: "MP-445",
         )
         expect(cache).to have_received(:put).with(
           key: "PR00151",
@@ -427,6 +332,7 @@ RSpec.describe Claire::Resolver do
           jira_ticket: nil,
           project_code: "PR00151",
           walked_chain: [],
+          epic_key: "MP-445",
         )
       end
 
@@ -442,9 +348,7 @@ RSpec.describe Claire::Resolver do
           "walked_chain" => [],
         }
         allow(cache).to receive(:get).with("MP-445").and_return(existing_entry)
-        allow(jira).to receive(:fetch_issue).with("MP-445", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "MP-445", "fields" => { "customfield_10762" => "PR00151", "parent" => nil } },
-        )
+        stub_issue(jira, "MP-445", project_code: "PR00151", parent: nil, issuetype: "Epic")
         allow(cache).to receive(:delete_by_resolution)
         allow(cache).to receive(:put)
 
@@ -463,6 +367,7 @@ RSpec.describe Claire::Resolver do
           jira_ticket: "MP-445",
           project_code: "PR00151",
           walked_chain: [],
+          epic_key: "MP-445",
         )
       end
 
@@ -564,21 +469,79 @@ RSpec.describe Claire::Resolver do
       end
     end
 
+    context "epic-aware walk (#45)" do
+      it "populates epic_key with the key of the ticket where the walk stops" do
+        jira = instance_double(Claire::Jira)
+        stub_issue(jira, "MP-445", project_code: "PR00151", parent: nil, issuetype: "Epic")
+
+        resolution = Claire::Resolver.resolve("MP-445", jira: jira, cache: null_cache)
+
+        expect(resolution.epic_key).to eq("MP-445")
+      end
+
+      it "walks past a Story that has a non-legacy project code, stopping at the Epic ancestor" do
+        jira = instance_double(Claire::Jira)
+        stub_issue(jira, "MP-421", project_code: "PR00151", parent: "MP-445", issuetype: "Story")
+        stub_issue(jira, "MP-445", project_code: "PR00151", parent: nil, issuetype: "Epic")
+
+        resolution = Claire::Resolver.resolve("MP-421", jira: jira, cache: null_cache)
+
+        expect(resolution.epic_key).to eq("MP-445")
+        expect(resolution.project_code).to eq("PR00151")
+        expect(resolution.jira_ticket).to eq("MP-421")
+      end
+
+      it "enriches each walked_chain hop with key, summary, and issuetype" do
+        jira = instance_double(Claire::Jira)
+        stub_issue(jira, "MP-715", project_code: nil, parent: "MP-421", summary: "Convert decorators")
+        stub_issue(jira, "MP-421", project_code: nil, parent: "MP-445", summary: "es-MX date presentation")
+        stub_issue(jira, "MP-445", project_code: "PR00151", parent: nil, issuetype: "Epic", summary: "MX2 - MP Additional Adjustments")
+
+        resolution = Claire::Resolver.resolve("MP-715", jira: jira, cache: null_cache)
+
+        expect(resolution.walked_chain).to eq([
+          { "key" => "MP-715", "summary" => "Convert decorators", "issuetype" => "Story" },
+          { "key" => "MP-421", "summary" => "es-MX date presentation", "issuetype" => "Story" },
+          { "key" => "MP-445", "summary" => "MX2 - MP Additional Adjustments", "issuetype" => "Epic" },
+        ])
+      end
+
+      it "persists epic_key on every per-step cache entry so subsequent cache hits keep it" do
+        jira = instance_double(Claire::Jira)
+        stub_issue(jira, "MP-796", project_code: "", parent: "MP-445")
+        stub_issue(jira, "MP-445", project_code: "PR00151", parent: nil, issuetype: "Epic")
+        cache = instance_double(Claire::Cache)
+        allow(cache).to receive(:get).and_return(nil)
+        allow(cache).to receive(:put)
+
+        Claire::Resolver.resolve("MP-796", jira: jira, cache: cache)
+
+        expect(cache).to have_received(:put).with(hash_including(key: "MP-796", epic_key: "MP-445"))
+        expect(cache).to have_received(:put).with(hash_including(key: "MP-445", epic_key: "MP-445"))
+      end
+
+      it "walks past an Epic that has no project code, continuing up the chain" do
+        jira = instance_double(Claire::Jira)
+        stub_issue(jira, "MP-421", project_code: nil, parent: "MP-445", issuetype: "Story")
+        stub_issue(jira, "MP-445", project_code: nil, parent: "INI-1", issuetype: "Epic")
+        stub_issue(jira, "INI-1", project_code: "PR00151", parent: nil, issuetype: "Initiative")
+        # Initiative is not an Epic, so the walk does NOT stop here even though it has a project code.
+        # The walk should keep going... but there's no further parent, so it raises.
+        expect {
+          Claire::Resolver.resolve("MP-421", jira: jira, cache: null_cache)
+        }.to raise_error(Claire::Resolver::NoProjectCodeError)
+      end
+    end
+
     context "per-step chain caching (#27)" do
       # The chain MP-100 -> MP-200 -> MP-300, where MP-300 carries project
       # code PR00999. The "left-to-right" walk is what the resolver does
       # internally; the cached "walked_chain" for each entry is the
       # *remaining* chain from that ticket onward.
       def stub_chain_walk(jira)
-        allow(jira).to receive(:fetch_issue).with("MP-100", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "MP-100", "fields" => { "customfield_10762" => "", "parent" => { "key" => "MP-200" } } },
-        )
-        allow(jira).to receive(:fetch_issue).with("MP-200", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "MP-200", "fields" => { "customfield_10762" => "", "parent" => { "key" => "MP-300" } } },
-        )
-        allow(jira).to receive(:fetch_issue).with("MP-300", fields: ["customfield_10762", "parent"]).and_return(
-          { "key" => "MP-300", "fields" => { "customfield_10762" => "PR00999", "parent" => nil } },
-        )
+        stub_issue(jira, "MP-100", project_code: "", parent: "MP-200")
+        stub_issue(jira, "MP-200", project_code: "", parent: "MP-300")
+        stub_issue(jira, "MP-300", project_code: "PR00999", parent: nil, issuetype: "Epic")
       end
 
       it "writes one cache entry per ticket in the walk plus one for the project code" do
@@ -597,7 +560,8 @@ RSpec.describe Claire::Resolver do
           pr_url: nil,
           jira_ticket: "MP-100",
           project_code: "PR00999",
-          walked_chain: ["MP-200", "MP-300"],
+          walked_chain: [hop("MP-200"), hop("MP-300", issuetype: "Epic")],
+          epic_key: "MP-300",
         )
 
         # MP-200 — an intermediate. No pr_url. walked_chain is what remains.
@@ -606,7 +570,8 @@ RSpec.describe Claire::Resolver do
           pr_url: nil,
           jira_ticket: "MP-200",
           project_code: "PR00999",
-          walked_chain: ["MP-300"],
+          walked_chain: [hop("MP-300", issuetype: "Epic")],
+          epic_key: "MP-300",
         )
 
         # MP-300 — the ticket that actually carries the project code.
@@ -617,6 +582,7 @@ RSpec.describe Claire::Resolver do
           jira_ticket: "MP-300",
           project_code: "PR00999",
           walked_chain: [],
+          epic_key: "MP-300",
         )
 
         # PR00999 — the project code itself. A project-code key carries no
@@ -628,6 +594,7 @@ RSpec.describe Claire::Resolver do
           jira_ticket: nil,
           project_code: "PR00999",
           walked_chain: [],
+          epic_key: "MP-300",
         )
       end
 

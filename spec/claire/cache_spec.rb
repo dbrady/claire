@@ -118,7 +118,8 @@ RSpec.describe Claire::Cache do
 
         data = YAML.safe_load_file(path)
 
-        expect(data.keys).to contain_exactly("MP-820")
+        # Schema-version sentinel sits alongside entries; only one data key here.
+        expect(data.keys).to contain_exactly("MP-820", Claire::Cache::SCHEMA_KEY)
       end
     end
 
@@ -130,6 +131,53 @@ RSpec.describe Claire::Cache do
         cache.put(key: "MP-820", jira_ticket: "MP-820", project_code: "PR00151")
 
         expect(File.exist?(path)).to be true
+      end
+    end
+  end
+
+  describe "schema versioning (#45)" do
+    it "treats a cache file lacking the schema-version sentinel as empty" do
+      # Pre-#45 entries lack the enriched walked_chain shape (hop hashes
+      # vs bare keys). Rather than migrating, the cache file is wiped on
+      # first read so a stale entry can't poison a post-#45 resolution.
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "resolutions.yml")
+        File.write(path, YAML.dump({
+          "MP-820" => {
+            "pr_url" => nil,
+            "jira_ticket" => "MP-820",
+            "project_code" => "PR00151",
+            "walked_chain" => ["MP-820"],
+          },
+        }))
+        cache = Claire::Cache.new(path: path)
+
+        expect(cache.get("MP-820")).to be_nil
+      end
+    end
+
+    it "treats a cache file with a mismatched schema version as empty" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "resolutions.yml")
+        File.write(path, YAML.dump({
+          "__schema_version__" => "v0-pretend-old",
+          "MP-820" => { "project_code" => "PR00151" },
+        }))
+        cache = Claire::Cache.new(path: path)
+
+        expect(cache.get("MP-820")).to be_nil
+      end
+    end
+
+    it "writes the current schema-version sentinel on put so a future read is honored" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "resolutions.yml")
+        cache = Claire::Cache.new(path: path)
+        cache.put(key: "MP-820", jira_ticket: "MP-820", project_code: "PR00151")
+
+        data = YAML.safe_load_file(path)
+        expect(data).to have_key("__schema_version__")
+        expect(data["__schema_version__"]).to eq(Claire::Cache::SCHEMA_VERSION)
       end
     end
   end

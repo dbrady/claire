@@ -9,17 +9,19 @@ require "claire/target"
 
 module Claire
   class Resolver
-    Resolution = Data.define(:pr_url, :jira_ticket, :walked_chain, :project_code)
+    Resolution = Data.define(:pr_url, :jira_ticket, :walked_chain, :project_code, :epic_key)
 
     class NoProjectCodeError < StandardError
       def initialize(walked_chain)
-        super("No project code found after walking: #{walked_chain.join(" -> ")}")
+        keys = walked_chain.map { |hop| hop.is_a?(Hash) ? hop["key"] : hop }
+        super("No project code found after walking: #{keys.join(" -> ")}")
       end
     end
 
     class DepthLimitError < StandardError
       def initialize(walked_chain)
-        super("Parent chain exceeded depth limit (5) starting from #{walked_chain.first}. Walked: #{walked_chain.join(" -> ")}")
+        keys = walked_chain.map { |hop| hop.is_a?(Hash) ? hop["key"] : hop }
+        super("Parent chain exceeded depth limit (5) starting from #{keys.first}. Walked: #{keys.join(" -> ")}")
       end
     end
 
@@ -30,6 +32,14 @@ module Claire
     # customfield_10762 by data migration but not valid Clarity codes; walk
     # past them to the parent issue.
     LEGACY_PROJECT_CODE_PATTERN = /\A[A-Z]\d{2}-/
+
+    # Clarity grants approval at the Epic level. The walk must stop on an
+    # Epic that also carries a non-legacy project code; a Story or Sub-Task
+    # with a project code is *not* the answer, even if customfield_10762 is
+    # set — the user is responsible for two distinct epics rolling up to
+    # the same project code, and we must surface the right one.
+    JIRA_FIELDS = ["customfield_10762", "parent", "summary", "issuetype"].freeze
+    EPIC_ISSUETYPE = "Epic"
 
     def self.resolve(input, jira: nil, github: nil, cache: nil, config: nil, aliases: nil, refresh: false)
       loaded_config = config || Claire::Config.load
@@ -82,15 +92,18 @@ module Claire
     #   project code             — only project code; nil ticket and pr_url
     def cache_per_step(resolution)
       project_code = resolution.project_code
+      epic_key = resolution.epic_key
       full_chain = resolution.walked_chain
 
-      full_chain.each_with_index do |ticket, i|
+      full_chain.each_with_index do |hop, i|
+        ticket_key = hop["key"]
         @cache.put(
-          key: ticket,
+          key: ticket_key,
           pr_url: i.zero? ? resolution.pr_url : nil,
-          jira_ticket: ticket,
+          jira_ticket: ticket_key,
           project_code: project_code,
           walked_chain: full_chain[(i + 1)..],
+          epic_key: epic_key,
         )
       end
 
@@ -100,6 +113,7 @@ module Claire
         jira_ticket: nil,
         project_code: project_code,
         walked_chain: [],
+        epic_key: epic_key,
       )
     end
 
@@ -127,11 +141,12 @@ module Claire
         jira_ticket: cached["jira_ticket"],
         walked_chain: cached["walked_chain"] || [],
         project_code: cached["project_code"],
+        epic_key: cached["epic_key"],
       )
     end
 
     def live_resolve_project_code(input)
-      Resolution.new(pr_url: nil, jira_ticket: nil, walked_chain: [], project_code: input)
+      Resolution.new(pr_url: nil, jira_ticket: nil, walked_chain: [], project_code: input, epic_key: nil)
     end
 
     def live_resolve(input)
@@ -157,17 +172,24 @@ module Claire
           raise DepthLimitError.new(walked_chain)
         end
 
-        walked_chain << current_key
-        issue = @jira.fetch_issue(current_key, fields: ["customfield_10762", "parent"])
+        issue = @jira.fetch_issue(current_key, fields: JIRA_FIELDS)
         fields = issue["fields"]
         project_code = fields["customfield_10762"]
+        issuetype = fields.dig("issuetype", "name")
+        summary = fields["summary"]
 
-        if project_code && !project_code.empty? && !project_code.match?(LEGACY_PROJECT_CODE_PATTERN)
+        walked_chain << { "key" => current_key, "summary" => summary, "issuetype" => issuetype }
+
+        is_epic = issuetype == EPIC_ISSUETYPE
+        has_real_code = project_code && !project_code.empty? && !project_code.match?(LEGACY_PROJECT_CODE_PATTERN)
+
+        if is_epic && has_real_code
           return Resolution.new(
             pr_url: pr_url,
             jira_ticket: ticket_key,
             walked_chain: walked_chain,
             project_code: project_code,
+            epic_key: current_key,
           )
         end
 
