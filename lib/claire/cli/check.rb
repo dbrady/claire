@@ -74,7 +74,11 @@ module Claire
       def format_walk(input, resolution)
         label = @project_names.label(resolution.project_code)
         if resolution.walked_chain.any?
-          chain = resolution.walked_chain.join(" -> ")
+          # Transitional: #45 enriches walked_chain hops to {key, summary, issuetype}.
+          # #46 will rewrite this output as a nested tree using the new data; for now
+          # we render the key chain as before so the existing UX keeps working.
+          keys = resolution.walked_chain.map { |hop| hop.is_a?(Hash) ? hop["key"] : hop }
+          chain = keys.join(" -> ")
           "#{chain} -> project code: #{label}"
         else
           "project code: #{label}"
